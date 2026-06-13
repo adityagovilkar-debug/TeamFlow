@@ -9,6 +9,7 @@ import {
   KanbanSquare,
   CalendarDays,
   Shield,
+  Settings,
   CheckSquare,
   LogOut,
   Menu,
@@ -25,6 +26,7 @@ const NAV = [
   { href: "/tasks", label: "Tasks", icon: ListChecks },
   { href: "/board", label: "Board", icon: KanbanSquare },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar({ profile }: { profile: Profile }) {

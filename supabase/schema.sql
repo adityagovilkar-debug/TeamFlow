@@ -24,6 +24,7 @@ create table if not exists public.profiles (
   full_name   text,
   role        user_role not null default 'viewer',
   avatar_url  text,
+  email_notifications boolean not null default true,
   created_at  timestamptz not null default now()
 );
 

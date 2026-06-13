@@ -69,15 +69,56 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 6. **Sign up** — the **first account becomes Admin**. Teammates who sign up after
    join as **Viewer**; promote them in **Admin → Members**.
 
+> **Already have the database from an earlier version?** Run the migration in
+> [`supabase/migrations/01_email_notifications.sql`](supabase/migrations/01_email_notifications.sql)
+> in the Supabase SQL editor to add the notification preference column.
+
+---
+
+## Email notifications (optional)
+
+TeamFlow can email the people connected to a task — its **creator, assignee, and
+watchers** — when:
+
+- a **new comment** is posted,
+- the task's **status changes**, or
+- someone is **newly assigned** or **added as a watcher**.
+
+The person who made the change is never emailed, and each user can turn emails off
+in **Settings**. Notifications are best-effort: if email fails or isn't configured,
+task actions still succeed.
+
+### Set up SMTP (Gmail example — no domain needed)
+
+1. On the Google account you'll send from, enable **2-Step Verification**, then
+   create an **App Password**: Google Account → Security → App passwords. Copy the
+   16-character password.
+2. Fill these in `.env.local` (and later in Vercel):
+   ```bash
+   NEXT_PUBLIC_APP_URL=http://localhost:3000   # your Vercel URL in production
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=you@gmail.com
+   SMTP_PASS=your-16-char-app-password
+   SMTP_FROM=TeamFlow <you@gmail.com>
+   ```
+3. Restart `npm run dev`. Any SMTP provider works (Resend SMTP, SendGrid, Mailgun,
+   your own host) — just swap the host/credentials.
+
+> Gmail SMTP is great for a small team (≈500 emails/day). For higher volume use a
+> transactional provider.
+
 ---
 
 ## 2. Deploy to Vercel
 
 1. Push this folder to a GitHub repository.
 2. On [vercel.com](https://vercel.com) → **Add New → Project** → import the repo.
-3. **Environment Variables** — add the same two keys from `.env.local`:
+3. **Environment Variables** — add the keys from `.env.local`:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_APP_URL` — set to your Vercel domain (so email links point to prod)
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (only if using email notifications)
 4. **Deploy.** Vercel auto-detects Next.js; no extra config needed.
 5. **Point Supabase at your live URL** so auth redirects work:
    - Supabase → **Authentication → URL Configuration** → set **Site URL** to your
