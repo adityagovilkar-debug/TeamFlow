@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { APP_NAME, ORG_NAME } from "@/lib/brand";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -67,7 +68,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
         {mode === "login"
-          ? "Sign in to your TeamFlow workspace."
+          ? `Sign in to the ${ORG_NAME} workspace on ${APP_NAME}.`
           : "The first account becomes the workspace Admin."}
       </p>
 

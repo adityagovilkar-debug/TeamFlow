@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CheckSquare } from "lucide-react";
+import { APP_NAME, ORG_NAME } from "@/lib/brand";
 
 export default function AuthLayout({
   children,
@@ -13,7 +14,10 @@ export default function AuthLayout({
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:24px_24px]" />
         <Link href="/" className="relative flex items-center gap-2 text-xl font-bold">
           <CheckSquare className="size-6" />
-          TeamFlow
+          {APP_NAME}
+          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[11px] font-semibold">
+            {ORG_NAME}
+          </span>
         </Link>
         <div className="relative">
           <h2 className="text-3xl font-bold leading-tight">
@@ -40,7 +44,7 @@ export default function AuthLayout({
           </ul>
         </div>
         <p className="relative text-sm text-white/60">
-          © {new Date().getFullYear()} TeamFlow
+          © {new Date().getFullYear()} {APP_NAME} · {ORG_NAME}
         </p>
       </div>
 

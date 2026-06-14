@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TeamFlow — Team task management",
-  description: "A lightweight, modern task manager for small teams.",
+  title: "TeamFlow · DrivenWise",
+  description: "TeamFlow — task management for the DrivenWise team.",
 };
 
 export default function RootLayout({

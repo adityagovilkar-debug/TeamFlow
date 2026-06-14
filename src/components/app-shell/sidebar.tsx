@@ -21,6 +21,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS, isAdmin, type Profile } from "@/lib/types";
+import { APP_NAME, ORG_NAME } from "@/lib/brand";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -66,7 +67,10 @@ export function Sidebar({ profile }: { profile: Profile }) {
           <span className="flex size-7 items-center justify-center rounded-lg brand-gradient text-white">
             <CheckSquare className="size-4" />
           </span>
-          TeamFlow
+          {APP_NAME}
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+            {ORG_NAME}
+          </span>
         </Link>
         <button
           onClick={() => setOpen((o) => !o)}
@@ -91,11 +95,16 @@ export function Sidebar({ profile }: { profile: Profile }) {
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex h-16 items-center gap-2 border-b border-border px-5 text-lg font-bold">
+        <div className="flex h-16 items-center gap-2.5 border-b border-border px-5">
           <span className="flex size-8 items-center justify-center rounded-lg brand-gradient text-white shadow">
             <CheckSquare className="size-5" />
           </span>
-          <span className="brand-text">TeamFlow</span>
+          <div className="flex flex-col leading-tight">
+            <span className="brand-text text-lg font-bold">{APP_NAME}</span>
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {ORG_NAME} workspace
+            </span>
+          </div>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
