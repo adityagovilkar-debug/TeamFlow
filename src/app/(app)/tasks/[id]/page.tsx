@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { getCurrentProfile } from "@/lib/auth";
 import {
+  getChecklist,
   getComments,
+  getFolders,
   getParentSummary,
   getProfiles,
   getStatuses,
@@ -17,16 +19,27 @@ export default async function TaskDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [profile, task, comments, statuses, teams, profiles, subtasks] =
-    await Promise.all([
-      getCurrentProfile(),
-      getTaskById(id),
-      getComments(id),
-      getStatuses(),
-      getTeams(),
-      getProfiles(),
-      getSubtasks(id),
-    ]);
+  const [
+    profile,
+    task,
+    comments,
+    statuses,
+    teams,
+    profiles,
+    subtasks,
+    checklist,
+    folders,
+  ] = await Promise.all([
+    getCurrentProfile(),
+    getTaskById(id),
+    getComments(id),
+    getStatuses(),
+    getTeams(),
+    getProfiles(),
+    getSubtasks(id),
+    getChecklist(id),
+    getFolders(),
+  ]);
 
   if (!task) notFound();
 
@@ -41,9 +54,11 @@ export default async function TaskDetailPage({
       parent={parent}
       subtasks={subtasks}
       comments={comments}
+      checklist={checklist}
       statuses={statuses}
       teams={teams}
       profiles={profiles}
+      folders={folders}
     />
   );
 }

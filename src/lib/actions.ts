@@ -51,6 +51,8 @@ export interface TaskInput {
   team_id: string | null;
   assignee_id: string | null;
   due_date: string | null;
+  start_date: string | null;
+  folder_id: string | null;
   watchers: string[];
   parent_id?: string | null;
 }
@@ -109,6 +111,37 @@ function revalidateTaskViews() {
   revalidatePath("/board");
   revalidatePath("/dashboard");
   revalidatePath("/calendar");
+  revalidatePath("/timeline");
+}
+
+/**
+ * Whether the current user may edit a given task (mirrors canEditTask, server
+ * side): admins/users can edit any task; a contributor only tasks assigned to
+ * them; viewers none. Used to guard checklist + archive actions.
+ */
+async function canEditTaskServer(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  taskId: string,
+): Promise<boolean> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return false;
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role === "admin" || me?.role === "user") return true;
+  if (me?.role === "contributor") {
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("assignee_id")
+      .eq("id", taskId)
+      .single();
+    return task?.assignee_id === user.id;
+  }
+  return false;
 }
 
 export async function createTask(input: TaskInput): Promise<Result> {
@@ -138,6 +171,8 @@ export async function createTask(input: TaskInput): Promise<Result> {
       team_id: input.team_id,
       assignee_id: input.assignee_id,
       due_date: input.due_date,
+      start_date: input.start_date,
+      folder_id: input.folder_id,
       parent_id: input.parent_id ?? null,
       position,
       created_by: user.id,
@@ -207,6 +242,8 @@ export async function updateTask(
       team_id: input.team_id,
       assignee_id: input.assignee_id,
       due_date: input.due_date,
+      start_date: input.start_date,
+      folder_id: input.folder_id,
     })
     .eq("id", id);
 
@@ -290,6 +327,7 @@ export async function deleteTask(id: string): Promise<Result> {
 export async function addComment(
   taskId: string,
   body: string,
+  parentId?: string | null,
 ): Promise<Result> {
   const supabase = await createClient();
   const {
@@ -299,10 +337,25 @@ export async function addComment(
 
   const { error } = await supabase
     .from("comments")
-    .insert({ task_id: taskId, author_id: user.id, body });
+    .insert({
+      task_id: taskId,
+      author_id: user.id,
+      body,
+      parent_id: parentId ?? null,
+    });
   if (error) return { error: error.message };
 
-  await notifyComment(supabase, taskId, user.id, body);
+  // A reply also notifies the author of the comment being replied to.
+  let extra: (string | null)[] = [];
+  if (parentId) {
+    const { data: parent } = await supabase
+      .from("comments")
+      .select("author_id")
+      .eq("id", parentId)
+      .single();
+    if (parent?.author_id) extra = [parent.author_id];
+  }
+  await notifyComment(supabase, taskId, user.id, body, extra);
 
   revalidatePath(`/tasks/${taskId}`);
   return {};
@@ -316,6 +369,168 @@ export async function deleteComment(
   const { error } = await supabase.from("comments").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath(`/tasks/${taskId}`);
+  return {};
+}
+
+// ---------- Checklists ----------
+export async function addChecklistItem(
+  taskId: string,
+  body: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, taskId)))
+    return { error: "You can't edit this task." };
+
+  const { count } = await supabase
+    .from("checklist_items")
+    .select("*", { count: "exact", head: true })
+    .eq("task_id", taskId);
+
+  const { error } = await supabase
+    .from("checklist_items")
+    .insert({ task_id: taskId, body, position: count ?? 0 });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+export async function toggleChecklistItem(
+  id: string,
+  taskId: string,
+  isDone: boolean,
+): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, taskId)))
+    return { error: "You can't edit this task." };
+
+  const { error } = await supabase
+    .from("checklist_items")
+    .update({ is_done: isDone })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+export async function deleteChecklistItem(
+  id: string,
+  taskId: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, taskId)))
+    return { error: "You can't edit this task." };
+
+  const { error } = await supabase
+    .from("checklist_items")
+    .delete()
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+// ---------- Folders ----------
+export async function createFolder(
+  name: string,
+  parentId?: string | null,
+): Promise<Result> {
+  const supabase = await createClient();
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Folder name is required." };
+
+  const { count } = await supabase
+    .from("folders")
+    .select("*", { count: "exact", head: true });
+
+  const { error } = await supabase
+    .from("folders")
+    .insert({ name: trimmed, parent_id: parentId ?? null, position: count ?? 0 });
+  if (error) return { error: error.message };
+
+  revalidateTaskViews();
+  return {};
+}
+
+export async function renameFolder(id: string, name: string): Promise<Result> {
+  const supabase = await createClient();
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Folder name is required." };
+
+  const { error } = await supabase
+    .from("folders")
+    .update({ name: trimmed })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidateTaskViews();
+  return {};
+}
+
+export async function deleteFolder(id: string): Promise<Result> {
+  const supabase = await createClient();
+  // FK rules: subfolders cascade-delete; tasks detach (folder_id -> null).
+  const { error } = await supabase.from("folders").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidateTaskViews();
+  return {};
+}
+
+export async function setTaskFolder(
+  taskId: string,
+  folderId: string | null,
+): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, taskId)))
+    return { error: "You can't edit this task." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ folder_id: folderId })
+    .eq("id", taskId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+// ---------- Archive ----------
+export async function archiveTask(id: string): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, id)))
+    return { error: "You can't archive this task." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/tasks/${id}`);
+  revalidateTaskViews();
+  return {};
+}
+
+export async function unarchiveTask(id: string): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, id)))
+    return { error: "You can't restore this task." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ archived_at: null })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/tasks/${id}`);
+  revalidateTaskViews();
   return {};
 }
 

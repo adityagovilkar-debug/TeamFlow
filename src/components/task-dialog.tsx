@@ -16,6 +16,9 @@ import { PeopleSelect } from "@/components/ui/people-select";
 import { createTask, updateTask, type TaskInput } from "@/lib/actions";
 import {
   PRIORITIES,
+  buildFolderTree,
+  flattenFolderTree,
+  type Folder,
   type Priority,
   type Profile,
   type Status,
@@ -29,8 +32,10 @@ export function TaskDialog({
   statuses,
   teams,
   profiles,
+  folders = [],
   task,
   defaultStatusId,
+  defaultFolderId,
   parentId,
 }: {
   open: boolean;
@@ -38,8 +43,10 @@ export function TaskDialog({
   statuses: Status[];
   teams: Team[];
   profiles: Profile[];
+  folders?: Folder[];
   task?: TaskWithRelations | null;
   defaultStatusId?: string | null;
+  defaultFolderId?: string | null;
   parentId?: string | null;
 }) {
   const router = useRouter();
@@ -53,9 +60,16 @@ export function TaskDialog({
   const [teamId, setTeamId] = React.useState<string>("");
   const [assigneeId, setAssigneeId] = React.useState<string>("");
   const [dueDate, setDueDate] = React.useState<string>("");
+  const [startDate, setStartDate] = React.useState<string>("");
+  const [folderId, setFolderId] = React.useState<string>("");
   const [watchers, setWatchers] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const folderOptions = React.useMemo(
+    () => flattenFolderTree(buildFolderTree(folders)),
+    [folders],
+  );
 
   // Initialize form whenever the dialog opens.
   React.useEffect(() => {
@@ -69,6 +83,8 @@ export function TaskDialog({
       setTeamId(task.team_id ?? "");
       setAssigneeId(task.assignee_id ?? "");
       setDueDate(task.due_date ?? "");
+      setStartDate(task.start_date ?? "");
+      setFolderId(task.folder_id ?? "");
       setWatchers(task.watchers.map((w) => w.id));
     } else {
       setTitle("");
@@ -78,9 +94,11 @@ export function TaskDialog({
       setTeamId("");
       setAssigneeId("");
       setDueDate("");
+      setStartDate("");
+      setFolderId(defaultFolderId ?? "");
       setWatchers([]);
     }
-  }, [open, task, defaultStatusId, statuses]);
+  }, [open, task, defaultStatusId, defaultFolderId, statuses]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,6 +114,8 @@ export function TaskDialog({
       team_id: teamId || null,
       assignee_id: assigneeId || null,
       due_date: dueDate || null,
+      start_date: startDate || null,
+      folder_id: folderId || null,
       watchers,
       parent_id: parentId ?? null,
     };
@@ -210,6 +230,15 @@ export function TaskDialog({
               </Select>
             </div>
             <div>
+              <Label htmlFor="start">Start date</Label>
+              <Input
+                id="start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div>
               <Label htmlFor="due">Due date</Label>
               <Input
                 id="due"
@@ -217,6 +246,21 @@ export function TaskDialog({
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
+            </div>
+            <div>
+              <Label htmlFor="t-folder">Folder</Label>
+              <Select
+                id="t-folder"
+                value={folderId}
+                onChange={(e) => setFolderId(e.target.value)}
+              >
+                <option value="">No folder</option>
+                {folderOptions.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {`${"— ".repeat(f.depth)}${f.name}`}
+                  </option>
+                ))}
+              </Select>
             </div>
             <div>
               <Label>Watchers</Label>

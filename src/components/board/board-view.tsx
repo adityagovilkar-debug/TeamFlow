@@ -14,7 +14,15 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Plus, KanbanSquare, MessageSquare, Eye, Lock, GitBranch } from "lucide-react";
+import {
+  Plus,
+  KanbanSquare,
+  MessageSquare,
+  Eye,
+  Lock,
+  GitBranch,
+  CheckSquare,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
@@ -28,6 +36,7 @@ import {
   canEditTask,
   canWrite,
   computeBlocked,
+  type Folder,
   type Priority,
   type Profile,
   type Role,
@@ -44,6 +53,7 @@ export function BoardView({
   statuses,
   teams,
   profiles,
+  folders,
 }: {
   role: Role;
   meId: string;
@@ -51,6 +61,7 @@ export function BoardView({
   statuses: Status[];
   teams: Team[];
   profiles: Profile[];
+  folders: Folder[];
 }) {
   const router = useRouter();
   useRealtime(["tasks", "comments", "task_watchers"]);
@@ -229,6 +240,7 @@ export function BoardView({
           statuses={statuses}
           teams={teams}
           profiles={profiles}
+          folders={folders}
           defaultStatusId={defaultStatus}
         />
       )}
@@ -386,6 +398,12 @@ function CardInner({
           {task.due_date && (
             <span className={cn(overdue && "font-medium text-destructive")}>
               {due.text}
+            </span>
+          )}
+          {(task.checklist_total ?? 0) > 0 && (
+            <span className="flex items-center gap-0.5">
+              <CheckSquare className="size-3" />
+              {task.checklist_done ?? 0}/{task.checklist_total}
             </span>
           )}
           {task.watchers.length > 0 && (

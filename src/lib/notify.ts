@@ -173,6 +173,7 @@ export async function notifyComment(
   taskId: string,
   actorId: string,
   comment: string,
+  extraRecipientIds: (string | null)[] = [],
 ): Promise<void> {
   await safe(async () => {
     const task = await loadTask(supabase, taskId);
@@ -180,7 +181,7 @@ export async function notifyComment(
     const watchers = await getWatcherIds(supabase, taskId);
     await deliver(
       supabase,
-      [task.created_by, task.assignee_id, ...watchers],
+      [task.created_by, task.assignee_id, ...watchers, ...extraRecipientIds],
       actorId,
       "comment",
       task,

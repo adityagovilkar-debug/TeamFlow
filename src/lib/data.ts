@@ -1,7 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import {
   computeBlocked,
+  type ChecklistItem,
   type Comment,
+  type CommentThread,
+  type Folder,
   type Profile,
   type SiblingForBlocking,
   type Status,
@@ -44,7 +47,8 @@ const TASK_SELECT = `
   team:teams(*),
   assignee:assignee_id(*),
   watchers:task_watchers(profile:profiles(*)),
-  comment_count:comments(count)
+  comment_count:comments(count),
+  checklist:checklist_items(is_done)
 `;
 
 type RawTask = Task & {
@@ -53,9 +57,11 @@ type RawTask = Task & {
   assignee: Profile | null;
   watchers: { profile: Profile }[] | null;
   comment_count: { count: number }[] | null;
+  checklist: { is_done: boolean }[] | null;
 };
 
 function shapeTask(raw: RawTask): TaskWithRelations {
+  const checklist = raw.checklist ?? [];
   return {
     ...raw,
     status: raw.status ?? null,
@@ -63,15 +69,29 @@ function shapeTask(raw: RawTask): TaskWithRelations {
     assignee: raw.assignee ?? null,
     watchers: (raw.watchers ?? []).map((w) => w.profile).filter(Boolean),
     comment_count: raw.comment_count?.[0]?.count ?? 0,
+    checklist_total: checklist.length,
+    checklist_done: checklist.filter((c) => c.is_done).length,
   };
 }
 
-export async function getTasks(): Promise<TaskWithRelations[]> {
+/**
+ * All tasks for the active views. Archived tasks are excluded by default; pass
+ * `onlyArchived` for the Tasks → Archived view (or `includeArchived` for both).
+ */
+export async function getTasks(opts?: {
+  includeArchived?: boolean;
+  onlyArchived?: boolean;
+}): Promise<TaskWithRelations[]> {
   const supabase = await createClient();
-  const { data } = await supabase
+  let query = supabase
     .from("tasks")
     .select(TASK_SELECT)
     .order("created_at", { ascending: false });
+
+  if (opts?.onlyArchived) query = query.not("archived_at", "is", null);
+  else if (!opts?.includeArchived) query = query.is("archived_at", null);
+
+  const { data } = await query;
   return ((data as RawTask[]) ?? []).map(shapeTask);
 }
 
@@ -123,12 +143,54 @@ export async function getParentSummary(
   return (data as { id: string; title: string }) ?? null;
 }
 
-export async function getComments(taskId: string): Promise<Comment[]> {
+/**
+ * Comments for a task, nested one level deep: top-level comments each carry
+ * their replies (a reply-to-a-reply is attached to the same root thread).
+ */
+export async function getComments(taskId: string): Promise<CommentThread[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("comments")
     .select("*, author:profiles(*)")
     .eq("task_id", taskId)
     .order("created_at", { ascending: true });
-  return (data as Comment[]) ?? [];
+
+  const all = (data as Comment[]) ?? [];
+  const roots = new Map<string, CommentThread>();
+  for (const c of all) {
+    if (!c.parent_id) roots.set(c.id, { ...c, replies: [] });
+  }
+  for (const c of all) {
+    if (!c.parent_id) continue;
+    // Attach to the parent if it's a root; otherwise hoist to the grandparent
+    // root so deeply-nested replies still appear in their thread.
+    let root = roots.get(c.parent_id);
+    if (!root) {
+      const parent = all.find((p) => p.id === c.parent_id);
+      if (parent?.parent_id) root = roots.get(parent.parent_id);
+    }
+    if (root) root.replies.push(c);
+  }
+  return [...roots.values()];
+}
+
+export async function getChecklist(taskId: string): Promise<ChecklistItem[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("checklist_items")
+    .select("*")
+    .eq("task_id", taskId)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+  return (data as ChecklistItem[]) ?? [];
+}
+
+export async function getFolders(): Promise<Folder[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("folders")
+    .select("*")
+    .order("position", { ascending: true })
+    .order("name", { ascending: true });
+  return (data as Folder[]) ?? [];
 }

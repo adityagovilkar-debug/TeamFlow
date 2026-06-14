@@ -1,15 +1,23 @@
 import { getCurrentProfile } from "@/lib/auth";
-import { getProfiles, getStatuses, getTasks, getTeams } from "@/lib/data";
+import {
+  getFolders,
+  getProfiles,
+  getStatuses,
+  getTasks,
+  getTeams,
+} from "@/lib/data";
 import { BoardView } from "@/components/board/board-view";
 
 export default async function BoardPage() {
-  const [profile, tasks, statuses, teams, profiles] = await Promise.all([
-    getCurrentProfile(),
-    getTasks(),
-    getStatuses(),
-    getTeams(),
-    getProfiles(),
-  ]);
+  const [profile, tasks, statuses, teams, profiles, folders] =
+    await Promise.all([
+      getCurrentProfile(),
+      getTasks(),
+      getStatuses(),
+      getTeams(),
+      getProfiles(),
+      getFolders(),
+    ]);
 
   return (
     <BoardView
@@ -19,6 +27,7 @@ export default async function BoardPage() {
       statuses={statuses}
       teams={teams}
       profiles={profiles}
+      folders={folders}
     />
   );
 }

@@ -12,14 +12,24 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 
 ## Features
 
-- **Tasks** — title, description, priority (low/medium/high/urgent), due date,
-  product/team, assignee, watchers, and threaded comments.
+- **Tasks** — title, description, priority (low/medium/high/urgent), start & due
+  dates, product/team, folder, assignee, and watchers.
+- **Threaded comments** — reply to a comment; replies nest under it.
+- **Checklists** — lightweight to-do items on any task or subtask, with a
+  done/total progress bar (great for quick wins).
+- **Folders** — a nestable folder tree (e.g. by client / campaign) to organize and
+  browse tasks.
+- **Archive** — archive old/finished tasks so they drop out of the active views
+  (Tasks / Board / Calendar / Timeline / Dashboard) but stay browsable under
+  Tasks → Archived, and can be restored anytime.
 - **Roles** (enforced in the database via Row-Level Security, not just the UI):
   - **Admin** — full access: delete tasks, manage custom statuses & teams, assign roles, manage users.
-  - **User** — create/edit any task, comment, manage watchers.
-  - **Contributor** — can edit & comment only on tasks **assigned to them**; views everything else.
+  - **User** — create/edit any task, comment, manage watchers, manage folders.
+  - **Contributor** — can edit, comment, and check off items only on tasks **assigned to them**; views everything else.
   - **Viewer** — read-only.
 - **Board** — drag-and-drop Kanban grouped by status.
+- **Timeline** — a Gantt-style view of tasks as bars across their start → due dates,
+  color-coded by priority, with overdue highlighting and a team filter.
 - **Dashboard** — totals, tasks by status / assignee / priority, overdue & due-soon,
   completion rate, filterable by team.
 - **Calendar** — month view of tasks on their due dates, color-coded by priority,
@@ -72,8 +82,21 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 
 > **Already have the database from an earlier version?** Run the migrations in
 > [`supabase/migrations/`](supabase/migrations) (in order) in the Supabase SQL
-> editor — `01_email_notifications.sql` (notification preference) and
-> `02_subtasks_pipeline.sql` (epics + subtask pipeline). They're safe to re-run.
+> editor. They're all idempotent (safe to re-run):
+> - `01_email_notifications.sql` — notification preference
+> - `02_subtasks_pipeline.sql` — epics + subtask pipeline
+> - `03a_add_contributor_role.sql` then `03b_contributor_policies.sql` — Contributor
+>   role *(run 03a alone first; a new enum value can't be used in the same
+>   transaction it's created)*
+> - `04_threaded_comments.sql` — comment replies
+> - `05_checklists.sql` — task/subtask checklists
+> - `06_timeline_start_date.sql` — task start date (Timeline)
+> - `07_folders.sql` — folder tree
+> - `08_archive.sql` — task archiving
+>
+> Migrations **04–08 can be pasted and run together** in one query (none have the
+> enum-in-transaction caveat). The app expects these tables/columns, so run them
+> before using the new build.
 
 ---
 
@@ -85,6 +108,24 @@ can't be moved to In Progress / Done (enforced in the UI, on the board, and at t
 server). Epics show a branch badge with a **progress bar** (done/total) in the task
 list and board, and locked subtasks show a 🔒 badge. **Admins can drag the handle**
 in the Pipeline to reorder subtasks.
+
+## Checklists, threaded comments, folders, archive & timeline
+
+- **Checklists** — open a task and use the **Checklist** card to add quick to-dos;
+  tick them off to fill the progress bar. Works on subtasks too. A `✓ done/total`
+  badge shows on the task list and board.
+- **Threaded comments** — hit **Reply** under any comment to start a thread; replies
+  nest beneath it.
+- **Folders** — the **Folders** panel on the Tasks page is a nestable tree (e.g. one
+  folder per client or campaign). Click a folder to filter; admins/users can add
+  subfolders, rename, and delete (deleting a folder keeps its tasks — they move to
+  *No folder* — and removes empty subfolders). Set a task's folder in the task
+  dialog.
+- **Archive** — archive a task (from its page or the row menu) to move it out of the
+  active views; find it under **Tasks → Archived** and **Restore** when needed.
+- **Timeline** — the **Timeline** tab shows a Gantt of tasks as bars spanning their
+  **start date → due date** (start falls back to the created date). Set a start date
+  in the task dialog. Color = priority; overdue tasks get a red outline.
 
 ## User management (admin)
 

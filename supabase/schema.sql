@@ -48,6 +48,16 @@ create table if not exists public.statuses (
   created_at  timestamptz not null default now()
 );
 
+-- Folders: a nestable tree to organize tasks (e.g. by client / campaign).
+create table if not exists public.folders (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  parent_id   uuid references public.folders (id) on delete cascade,
+  color       text not null default '#6366f1',
+  position    int  not null default 0,
+  created_at  timestamptz not null default now()
+);
+
 create table if not exists public.tasks (
   id           uuid primary key default gen_random_uuid(),
   title        text not null,
@@ -57,8 +67,11 @@ create table if not exists public.tasks (
   team_id      uuid references public.teams (id) on delete set null,
   assignee_id  uuid references public.profiles (id) on delete set null,
   due_date     date,
+  start_date   date,
   parent_id    uuid references public.tasks (id) on delete cascade,
+  folder_id    uuid references public.folders (id) on delete set null,
   position     int not null default 0,
+  archived_at  timestamptz,
   created_by   uuid references public.profiles (id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
@@ -76,14 +89,36 @@ create table if not exists public.comments (
   task_id    uuid not null references public.tasks (id) on delete cascade,
   author_id  uuid references public.profiles (id) on delete set null,
   body       text not null,
+  parent_id  uuid references public.comments (id) on delete cascade,
   created_at timestamptz not null default now()
 );
+
+-- Checklists: lightweight to-do items attached to any task (incl. subtasks).
+create table if not exists public.checklist_items (
+  id         uuid primary key default gen_random_uuid(),
+  task_id    uuid not null references public.tasks (id) on delete cascade,
+  body       text not null,
+  is_done    boolean not null default false,
+  position   int not null default 0,
+  created_at timestamptz not null default now()
+);
+
+-- Idempotent upgrades for existing databases (no-ops on a fresh install).
+alter table public.tasks    add column if not exists start_date  date;
+alter table public.tasks    add column if not exists folder_id   uuid references public.folders (id) on delete set null;
+alter table public.tasks    add column if not exists archived_at timestamptz;
+alter table public.comments add column if not exists parent_id   uuid references public.comments (id) on delete cascade;
 
 create index if not exists idx_tasks_parent on public.tasks (parent_id);
 create index if not exists idx_tasks_status on public.tasks (status_id);
 create index if not exists idx_tasks_team on public.tasks (team_id);
 create index if not exists idx_tasks_assignee on public.tasks (assignee_id);
+create index if not exists idx_tasks_folder on public.tasks (folder_id);
+create index if not exists idx_tasks_archived on public.tasks (archived_at);
+create index if not exists idx_folders_parent on public.folders (parent_id);
 create index if not exists idx_comments_task on public.comments (task_id);
+create index if not exists idx_comments_parent on public.comments (parent_id);
+create index if not exists idx_checklist_task on public.checklist_items (task_id);
 create index if not exists idx_watchers_task on public.task_watchers (task_id);
 
 -- ---------- Helpers ----------
@@ -182,9 +217,11 @@ create trigger on_auth_user_created
 alter table public.profiles enable row level security;
 alter table public.teams enable row level security;
 alter table public.statuses enable row level security;
+alter table public.folders enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_watchers enable row level security;
 alter table public.comments enable row level security;
+alter table public.checklist_items enable row level security;
 
 -- profiles: everyone authenticated can read; users edit own; admins edit anyone (incl. role).
 drop policy if exists profiles_select on public.profiles;
@@ -222,6 +259,16 @@ drop policy if exists statuses_admin_write on public.statuses;
 create policy statuses_admin_write on public.statuses
   for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
+
+-- folders: all read; admin+user manage the tree.
+drop policy if exists folders_select on public.folders;
+create policy folders_select on public.folders
+  for select to authenticated using (true);
+
+drop policy if exists folders_write on public.folders;
+create policy folders_write on public.folders
+  for all to authenticated
+  using (public.can_write()) with check (public.can_write());
 
 -- tasks: all read; admin+user insert/update; only admin delete.
 drop policy if exists tasks_select on public.tasks;
@@ -310,6 +357,35 @@ create policy comments_delete_own on public.comments
   for delete to authenticated
   using (author_id = auth.uid() or public.is_admin());
 
+-- checklist items: all read; admin+user write; contributor on assigned tasks only.
+drop policy if exists checklist_select on public.checklist_items;
+create policy checklist_select on public.checklist_items
+  for select to authenticated using (true);
+
+drop policy if exists checklist_write on public.checklist_items;
+create policy checklist_write on public.checklist_items
+  for all to authenticated
+  using (
+    public.can_write()
+    or (
+      public.current_role() = 'contributor'
+      and exists (
+        select 1 from public.tasks t
+        where t.id = task_id and t.assignee_id = auth.uid()
+      )
+    )
+  )
+  with check (
+    public.can_write()
+    or (
+      public.current_role() = 'contributor'
+      and exists (
+        select 1 from public.tasks t
+        where t.id = task_id and t.assignee_id = auth.uid()
+      )
+    )
+  );
+
 -- ---------- Realtime ----------
 do $$ begin
   alter publication supabase_realtime add table public.tasks;
@@ -319,6 +395,12 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.task_watchers;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.checklist_items;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.folders;
 exception when duplicate_object then null; end $$;
 
 -- ---------- Seed: default statuses & a couple of teams ----------

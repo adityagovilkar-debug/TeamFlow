@@ -8,6 +8,7 @@ import {
   ListChecks,
   KanbanSquare,
   CalendarDays,
+  ChartGantt,
   Shield,
   Settings,
   CheckSquare,
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/tasks", label: "Tasks", icon: ListChecks },
   { href: "/board", label: "Board", icon: KanbanSquare },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/timeline", label: "Timeline", icon: ChartGantt },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

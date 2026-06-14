@@ -32,19 +32,31 @@ import {
   GitBranch,
   ChevronRight,
   GripVertical,
+  CheckSquare,
+  Square,
+  Reply,
+  Archive,
+  ArchiveRestore,
+  FolderClosed,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { PriorityBadge, StatusBadge } from "@/components/task-badges";
 import { TaskDialog } from "@/components/task-dialog";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import {
+  addChecklistItem,
   addComment,
+  archiveTask,
+  deleteChecklistItem,
   deleteComment,
   deleteTask,
   reorderSubtasks,
+  toggleChecklistItem,
+  unarchiveTask,
 } from "@/lib/actions";
 import { useRealtime } from "@/lib/use-realtime";
 import { fmtDate, fmtDateTime, isOverdue } from "@/lib/date";
@@ -53,7 +65,10 @@ import {
   canEditTask,
   canWrite,
   isAdmin,
+  type ChecklistItem,
   type Comment,
+  type CommentThread,
+  type Folder,
   type Priority,
   type Profile,
   type Status,
@@ -68,33 +83,41 @@ export function TaskDetail({
   parent,
   subtasks,
   comments,
+  checklist,
   statuses,
   teams,
   profiles,
+  folders,
 }: {
   me: Profile;
   task: TaskWithRelations;
   parent: { id: string; title: string } | null;
   subtasks: Subtask[];
-  comments: Comment[];
+  comments: CommentThread[];
+  checklist: ChecklistItem[];
   statuses: Status[];
   teams: Team[];
   profiles: Profile[];
+  folders: Folder[];
 }) {
   const router = useRouter();
-  useRealtime(["tasks", "comments", "task_watchers"]);
+  useRealtime(["tasks", "comments", "task_watchers", "checklist_items"]);
 
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [subtaskOpen, setSubtaskOpen] = React.useState(false);
   const [body, setBody] = React.useState("");
   const [posting, setPosting] = React.useState(false);
+  const [archiving, setArchiving] = React.useState(false);
 
   const writable = canWrite(me.role); // can create (e.g. add subtasks)
   const canEdit = canEditTask(me.role, task, me.id); // can edit/comment this task
   const admin = isAdmin(me.role);
   const done = task.status?.category === "done";
   const overdue = isOverdue(task.due_date, done);
+  const archived = Boolean(task.archived_at);
+  const folder = folders.find((f) => f.id === task.folder_id) ?? null;
+  const commentCount = comments.reduce((n, c) => n + 1 + c.replies.length, 0);
 
   async function postComment(e: React.FormEvent) {
     e.preventDefault();
@@ -103,6 +126,14 @@ export function TaskDetail({
     await addComment(task.id, body.trim());
     setBody("");
     setPosting(false);
+    router.refresh();
+  }
+
+  async function toggleArchive() {
+    setArchiving(true);
+    if (archived) await unarchiveTask(task.id);
+    else await archiveTask(task.id);
+    setArchiving(false);
     router.refresh();
   }
 
@@ -144,6 +175,24 @@ export function TaskDetail({
                     Edit
                   </Button>
                 )}
+                {canEdit && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={toggleArchive}
+                    disabled={archiving}
+                    title={archived ? "Restore task" : "Archive task"}
+                  >
+                    {archiving ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : archived ? (
+                      <ArchiveRestore className="size-4" />
+                    ) : (
+                      <Archive className="size-4" />
+                    )}
+                    {archived ? "Restore" : "Archive"}
+                  </Button>
+                )}
                 {admin && (
                   <Button
                     variant="secondary"
@@ -170,6 +219,21 @@ export function TaskDetail({
                 {task.team.name}
               </span>
             )}
+            {folder && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium">
+                <FolderClosed
+                  className="size-3"
+                  style={{ color: folder.color }}
+                />
+                {folder.name}
+              </span>
+            )}
+            {archived && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                <Archive className="size-3" />
+                Archived
+              </span>
+            )}
           </div>
 
           <Card className="p-5">
@@ -187,6 +251,11 @@ export function TaskDetail({
             )}
           </Card>
 
+          {/* Checklist */}
+          {(checklist.length > 0 || canEdit) && (
+            <Checklist taskId={task.id} items={checklist} canEdit={canEdit} />
+          )}
+
           {/* Subtask pipeline */}
           {(subtasks.length > 0 || writable) && (
             <SubtaskPipeline
@@ -202,7 +271,7 @@ export function TaskDetail({
           <div>
             <h3 className="mb-3 font-semibold">
               Comments{" "}
-              <span className="text-muted-foreground">({comments.length})</span>
+              <span className="text-muted-foreground">({commentCount})</span>
             </h3>
 
             {canEdit && (
@@ -236,40 +305,14 @@ export function TaskDetail({
                 </p>
               )}
               {comments.map((c) => (
-                <div key={c.id} className="flex gap-3">
-                  <Avatar
-                    name={c.author?.full_name}
-                    email={c.author?.email}
-                    size={36}
-                  />
-                  <div className="flex-1 rounded-lg border border-border bg-card p-3">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">
-                        {c.author?.full_name || c.author?.email || "Unknown"}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {fmtDateTime(c.created_at)}
-                        </span>
-                        {(c.author_id === me.id || admin) && (
-                          <button
-                            onClick={async () => {
-                              await deleteComment(c.id, task.id);
-                              router.refresh();
-                            }}
-                            className="text-muted-foreground hover:text-destructive cursor-pointer"
-                            title="Delete comment"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {c.body}
-                    </p>
-                  </div>
-                </div>
+                <CommentItem
+                  key={c.id}
+                  comment={c}
+                  taskId={task.id}
+                  me={me}
+                  admin={admin}
+                  canEdit={canEdit}
+                />
               ))}
             </div>
           </div>
@@ -356,6 +399,7 @@ export function TaskDetail({
           statuses={statuses}
           teams={teams}
           profiles={profiles}
+          folders={folders}
           task={task}
         />
       )}
@@ -366,7 +410,9 @@ export function TaskDetail({
           statuses={statuses}
           teams={teams}
           profiles={profiles}
+          folders={folders}
           parentId={task.id}
+          defaultFolderId={task.folder_id}
         />
       )}
       {admin && (
@@ -607,5 +653,291 @@ function SubtaskRow({
         <ChevronRight className="size-4 text-muted-foreground" />
       </Link>
     </li>
+  );
+}
+
+function Checklist({
+  taskId,
+  items,
+  canEdit,
+}: {
+  taskId: string;
+  items: ChecklistItem[];
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [newItem, setNewItem] = React.useState("");
+  const [adding, setAdding] = React.useState(false);
+  const [busy, setBusy] = React.useState<string | null>(null);
+
+  const done = items.filter((i) => i.is_done).length;
+  const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newItem.trim()) return;
+    setAdding(true);
+    await addChecklistItem(taskId, newItem.trim());
+    setNewItem("");
+    setAdding(false);
+    router.refresh();
+  }
+
+  async function toggle(item: ChecklistItem) {
+    setBusy(item.id);
+    await toggleChecklistItem(item.id, taskId, !item.is_done);
+    setBusy(null);
+    router.refresh();
+  }
+
+  async function remove(item: ChecklistItem) {
+    setBusy(item.id);
+    await deleteChecklistItem(item.id, taskId);
+    setBusy(null);
+    router.refresh();
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 font-semibold">
+          <CheckSquare className="size-4 text-primary" />
+          Checklist
+          {items.length > 0 && (
+            <span className="text-sm font-normal text-muted-foreground">
+              {done}/{items.length} done
+            </span>
+          )}
+        </h3>
+      </div>
+
+      {items.length > 0 && (
+        <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-success transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Add quick to-dos to knock out the easy wins.
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item) => (
+            <li
+              key={item.id}
+              className="group flex items-center gap-2 rounded-lg px-1 py-1"
+            >
+              <button
+                type="button"
+                disabled={!canEdit || busy === item.id}
+                onClick={() => toggle(item)}
+                className={cn(
+                  "shrink-0 text-muted-foreground",
+                  canEdit && "cursor-pointer hover:text-primary",
+                )}
+                title={item.is_done ? "Mark not done" : "Mark done"}
+              >
+                {item.is_done ? (
+                  <CheckSquare className="size-4.5 text-success" />
+                ) : (
+                  <Square className="size-4.5" />
+                )}
+              </button>
+              <span
+                className={cn(
+                  "flex-1 text-sm",
+                  item.is_done && "text-muted-foreground line-through",
+                )}
+              >
+                {item.body}
+              </span>
+              {canEdit && (
+                <button
+                  type="button"
+                  disabled={busy === item.id}
+                  onClick={() => remove(item)}
+                  className="shrink-0 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 cursor-pointer"
+                  title="Remove item"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canEdit && (
+        <form onSubmit={add} className="mt-3 flex gap-2">
+          <Input
+            value={newItem}
+            onChange={(e) => setNewItem(e.target.value)}
+            placeholder="Add an item…"
+            className="h-9"
+          />
+          <Button type="submit" size="sm" disabled={adding || !newItem.trim()}>
+            {adding ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            Add
+          </Button>
+        </form>
+      )}
+    </Card>
+  );
+}
+
+function CommentItem({
+  comment,
+  taskId,
+  me,
+  admin,
+  canEdit,
+}: {
+  comment: CommentThread;
+  taskId: string;
+  me: Profile;
+  admin: boolean;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [replyOpen, setReplyOpen] = React.useState(false);
+  const [reply, setReply] = React.useState("");
+  const [sending, setSending] = React.useState(false);
+
+  async function sendReply(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reply.trim()) return;
+    setSending(true);
+    await addComment(taskId, reply.trim(), comment.id);
+    setReply("");
+    setSending(false);
+    setReplyOpen(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex gap-3">
+      <Avatar
+        name={comment.author?.full_name}
+        email={comment.author?.email}
+        size={36}
+      />
+      <div className="flex-1">
+        <Bubble c={comment} me={me} admin={admin} taskId={taskId} />
+
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setReplyOpen((o) => !o)}
+            className="mt-1 ml-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <Reply className="size-3" />
+            Reply
+          </button>
+        )}
+
+        {(comment.replies.length > 0 || replyOpen) && (
+          <div className="mt-3 space-y-3 border-l-2 border-border pl-4">
+            {comment.replies.map((r) => (
+              <div key={r.id} className="flex gap-3">
+                <Avatar
+                  name={r.author?.full_name}
+                  email={r.author?.email}
+                  size={28}
+                />
+                <Bubble c={r} me={me} admin={admin} taskId={taskId} />
+              </div>
+            ))}
+
+            {replyOpen && (
+              <form onSubmit={sendReply} className="flex gap-3">
+                <Avatar name={me.full_name} email={me.email} size={28} />
+                <div className="flex-1">
+                  <Textarea
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder={`Reply to ${
+                      comment.author?.full_name || "comment"
+                    }…`}
+                    className="min-h-14"
+                    autoFocus
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setReplyOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={sending || !reply.trim()}
+                    >
+                      {sending ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Send className="size-4" />
+                      )}
+                      Reply
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Bubble({
+  c,
+  me,
+  admin,
+  taskId,
+}: {
+  c: Comment;
+  me: Profile;
+  admin: boolean;
+  taskId: string;
+}) {
+  const router = useRouter();
+  return (
+    <div className="flex-1 rounded-lg border border-border bg-card p-3">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">
+          {c.author?.full_name || c.author?.email || "Unknown"}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {fmtDateTime(c.created_at)}
+          </span>
+          {(c.author_id === me.id || admin) && (
+            <button
+              onClick={async () => {
+                await deleteComment(c.id, taskId);
+                router.refresh();
+              }}
+              className="text-muted-foreground hover:text-destructive cursor-pointer"
+              title="Delete comment"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed">{c.body}</p>
+    </div>
   );
 }

@@ -35,8 +35,38 @@ export interface Comment {
   task_id: string;
   author_id: string;
   body: string;
+  parent_id: string | null;
   created_at: string;
   author?: Profile | null;
+}
+
+/** A top-level comment with its (one level of) replies, for threaded display. */
+export interface CommentThread extends Comment {
+  replies: Comment[];
+}
+
+export interface ChecklistItem {
+  id: string;
+  task_id: string;
+  body: string;
+  is_done: boolean;
+  position: number;
+  created_at: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  color: string;
+  position: number;
+  created_at: string;
+}
+
+/** A folder with its nested children, for tree display. */
+export interface FolderNode extends Folder {
+  children: FolderNode[];
+  depth: number;
 }
 
 export interface Task {
@@ -48,8 +78,11 @@ export interface Task {
   team_id: string | null;
   assignee_id: string | null;
   due_date: string | null;
+  start_date: string | null;
   parent_id: string | null;
+  folder_id: string | null;
   position: number;
+  archived_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -63,6 +96,8 @@ export interface TaskWithRelations extends Task {
   assignee: Profile | null;
   watchers: Profile[];
   comment_count?: number;
+  checklist_done?: number;
+  checklist_total?: number;
 }
 
 /** A subtask in an epic's pipeline, with its computed lock state. */
@@ -135,4 +170,65 @@ export function canEditTask(
   if (role === "contributor")
     return Boolean(userId) && task.assignee_id === userId;
   return false;
+}
+
+/**
+ * Turn a flat folder list into a nested tree, sorted by position then name and
+ * annotated with depth (root folders are depth 0). Orphans (missing parent)
+ * surface at the root so nothing is hidden.
+ */
+export function buildFolderTree(folders: Folder[]): FolderNode[] {
+  const byId = new Map<string, FolderNode>();
+  for (const f of folders) byId.set(f.id, { ...f, children: [], depth: 0 });
+
+  const roots: FolderNode[] = [];
+  for (const node of byId.values()) {
+    const parent = node.parent_id ? byId.get(node.parent_id) : null;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  const sortRec = (nodes: FolderNode[], depth: number) => {
+    nodes.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    for (const n of nodes) {
+      n.depth = depth;
+      sortRec(n.children, depth + 1);
+    }
+  };
+  sortRec(roots, 0);
+  return roots;
+}
+
+/** Flatten a folder tree to a list (pre-order), useful for rendering rows. */
+export function flattenFolderTree(nodes: FolderNode[]): FolderNode[] {
+  const out: FolderNode[] = [];
+  const walk = (ns: FolderNode[]) => {
+    for (const n of ns) {
+      out.push(n);
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/** All descendant folder ids of a folder (inclusive), for "filter by folder". */
+export function folderWithDescendants(
+  folderId: string,
+  folders: Folder[],
+): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const f of folders) {
+    if (!f.parent_id) continue;
+    const arr = childrenOf.get(f.parent_id) ?? [];
+    arr.push(f.id);
+    childrenOf.set(f.parent_id, arr);
+  }
+  const ids = new Set<string>();
+  const walk = (id: string) => {
+    ids.add(id);
+    for (const c of childrenOf.get(id) ?? []) walk(c);
+  };
+  walk(folderId);
+  return ids;
 }
