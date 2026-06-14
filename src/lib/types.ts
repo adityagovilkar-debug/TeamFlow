@@ -48,6 +48,8 @@ export interface Task {
   team_id: string | null;
   assignee_id: string | null;
   due_date: string | null;
+  parent_id: string | null;
+  position: number;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -61,6 +63,38 @@ export interface TaskWithRelations extends Task {
   assignee: Profile | null;
   watchers: Profile[];
   comment_count?: number;
+}
+
+/** A subtask in an epic's pipeline, with its computed lock state. */
+export interface Subtask extends TaskWithRelations {
+  blocked: boolean;
+  blockedBy: string | null; // title of the predecessor that blocks it
+}
+
+/** Minimal shape needed to decide if a subtask is blocked by predecessors. */
+export interface SiblingForBlocking {
+  id: string;
+  title: string;
+  position: number;
+  category: StatusCategory | null;
+}
+
+/**
+ * A subtask is blocked if any earlier sibling (lower position) is not yet in a
+ * "done" status. Returns the blocking predecessor's title, if any.
+ */
+export function computeBlocked(
+  taskId: string,
+  position: number,
+  siblings: SiblingForBlocking[],
+): { blocked: boolean; blockedBy: string | null } {
+  const predecessors = siblings
+    .filter((s) => s.id !== taskId && s.position < position)
+    .sort((a, b) => a.position - b.position);
+  const blocker = predecessors.find((p) => p.category !== "done");
+  return blocker
+    ? { blocked: true, blockedBy: blocker.title }
+    : { blocked: false, blockedBy: null };
 }
 
 export const PRIORITIES: { value: Priority; label: string; color: string }[] = [

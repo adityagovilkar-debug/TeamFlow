@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
 import {
   notifyAssigned,
   notifyComment,
@@ -9,6 +10,23 @@ import {
   notifyWatching,
 } from "@/lib/notify";
 import type { Priority, Role, StatusCategory } from "@/lib/types";
+
+/** Returns the caller's id if they are an admin, else an error result. */
+async function requireAdmin(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<{ userId: string } | { error: string }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  const { data } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (data?.role !== "admin") return { error: "Admins only." };
+  return { userId: user.id };
+}
 
 async function statusName(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -34,6 +52,56 @@ export interface TaskInput {
   assignee_id: string | null;
   due_date: string | null;
   watchers: string[];
+  parent_id?: string | null;
+}
+
+/**
+ * Whether a subtask is blocked by an unfinished predecessor in its epic.
+ * Used to enforce the pipeline rule server-side (a subtask can't move past
+ * "todo" until earlier siblings are done).
+ */
+async function blockedPredecessor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  taskId: string,
+): Promise<string | null> {
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("parent_id, position")
+    .eq("id", taskId)
+    .single();
+  if (!task?.parent_id) return null;
+
+  const { data: preds } = await supabase
+    .from("tasks")
+    .select("title, position, status:statuses(category)")
+    .eq("parent_id", task.parent_id)
+    .lt("position", task.position)
+    .order("position", { ascending: true });
+
+  // The embedded `status` may come back as an object or a single-element array
+  // depending on type inference; normalize before checking the category.
+  type Row = { title: string; status: unknown };
+  const category = (status: unknown): string | null => {
+    const s = Array.isArray(status) ? status[0] : status;
+    return (s as { category?: string } | null)?.category ?? null;
+  };
+  const blocker = ((preds ?? []) as Row[]).find(
+    (p) => category(p.status) !== "done",
+  );
+  return blocker?.title ?? null;
+}
+
+async function statusCategory(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  statusId: string | null,
+): Promise<StatusCategory | null> {
+  if (!statusId) return null;
+  const { data } = await supabase
+    .from("statuses")
+    .select("category")
+    .eq("id", statusId)
+    .single();
+  return (data?.category as StatusCategory) ?? null;
 }
 
 function revalidateTaskViews() {
@@ -50,6 +118,16 @@ export async function createTask(input: TaskInput): Promise<Result> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  // Subtasks are appended to the end of their epic's pipeline.
+  let position = 0;
+  if (input.parent_id) {
+    const { count } = await supabase
+      .from("tasks")
+      .select("*", { count: "exact", head: true })
+      .eq("parent_id", input.parent_id);
+    position = count ?? 0;
+  }
+
   const { data, error } = await supabase
     .from("tasks")
     .insert({
@@ -60,6 +138,8 @@ export async function createTask(input: TaskInput): Promise<Result> {
       team_id: input.team_id,
       assignee_id: input.assignee_id,
       due_date: input.due_date,
+      parent_id: input.parent_id ?? null,
+      position,
       created_by: user.id,
     })
     .select("id")
@@ -80,6 +160,7 @@ export async function createTask(input: TaskInput): Promise<Result> {
   await notifyWatching(supabase, data.id, user.id, input.watchers);
 
   revalidateTaskViews();
+  if (input.parent_id) revalidatePath(`/tasks/${input.parent_id}`);
   return {};
 }
 
@@ -106,6 +187,15 @@ export async function updateTask(
   const priorWatchers = (priorWatcherRows ?? []).map(
     (w: { user_id: string }) => w.user_id,
   );
+
+  // Pipeline rule: block moving a subtask past "todo" if a predecessor isn't done.
+  if (input.status_id && input.status_id !== prior?.status_id) {
+    const category = await statusCategory(supabase, input.status_id);
+    if (category && category !== "todo") {
+      const blocker = await blockedPredecessor(supabase, id);
+      if (blocker) return { error: `Blocked — finish “${blocker}” first.` };
+    }
+  }
 
   const { error } = await supabase
     .from("tasks")
@@ -160,6 +250,15 @@ export async function updateTaskStatus(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Pipeline rule: a subtask can't move past "todo" until earlier siblings are done.
+  const category = await statusCategory(supabase, statusId);
+  if (category && category !== "todo") {
+    const blocker = await blockedPredecessor(supabase, id);
+    if (blocker) {
+      return { error: `Blocked — finish “${blocker}” first.` };
+    }
+  }
 
   const { error } = await supabase
     .from("tasks")
@@ -313,6 +412,49 @@ export async function setUserRole(
     .eq("id", userId);
   if (error) return { error: error.message };
   revalidatePath("/admin");
+  return {};
+}
+
+// ---------- Admin: privileged user management (service role) ----------
+export async function deleteUser(userId: string): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+  if (guard.userId === userId)
+    return { error: "You can't delete your own account." };
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "User management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  // Deleting the auth user cascades to their profile and related data.
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/admin");
+  return {};
+}
+
+export async function setUserPassword(
+  userId: string,
+  password: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+  if (password.length < 6)
+    return { error: "Password must be at least 6 characters." };
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "User management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(userId, { password });
+  if (error) return { error: error.message };
   return {};
 }
 

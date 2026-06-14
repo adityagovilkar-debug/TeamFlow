@@ -14,7 +14,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Plus, KanbanSquare, MessageSquare, Eye } from "lucide-react";
+import { Plus, KanbanSquare, MessageSquare, Eye, Lock, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader, EmptyState } from "@/components/ui/page-header";
@@ -26,9 +26,11 @@ import { dueLabel, isOverdue } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import {
   canWrite,
+  computeBlocked,
   type Priority,
   type Profile,
   type Role,
+  type SiblingForBlocking,
   type Status,
   type TaskWithRelations,
   type Team,
@@ -57,12 +59,39 @@ export function BoardView({
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [defaultStatus, setDefaultStatus] = React.useState<string | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
 
   const activeTask = items.find((t) => t.id === activeId) || null;
+
+  // Epic / blocked relationships computed from the current board state.
+  const childCount = new Map<string, number>();
+  const siblingsByParent = new Map<string, SiblingForBlocking[]>();
+  for (const t of items) {
+    if (!t.parent_id) continue;
+    childCount.set(t.parent_id, (childCount.get(t.parent_id) ?? 0) + 1);
+    const arr = siblingsByParent.get(t.parent_id) ?? [];
+    arr.push({
+      id: t.id,
+      title: t.title,
+      position: t.position,
+      category: t.status?.category ?? null,
+    });
+    siblingsByParent.set(t.parent_id, arr);
+  }
+  const blockInfo = (t: TaskWithRelations) =>
+    t.parent_id
+      ? computeBlocked(t.id, t.position, siblingsByParent.get(t.parent_id) ?? [])
+      : { blocked: false, blockedBy: null };
 
   function onDragStart(e: DragStartEvent) {
     setActiveId(String(e.active.id));
@@ -80,6 +109,16 @@ export function BoardView({
     const task = items.find((t) => t.id === taskId);
     if (!task || task.status_id === newStatusId) return;
 
+    // Pipeline rule: don't let a locked subtask move past "todo".
+    const target = statuses.find((s) => s.id === newStatusId);
+    if (target && target.category !== "todo") {
+      const info = blockInfo(task);
+      if (info.blocked) {
+        setToast(`🔒 Locked — finish “${info.blockedBy}” first.`);
+        return;
+      }
+    }
+
     // Optimistic move.
     setItems((prev) =>
       prev.map((t) =>
@@ -93,7 +132,10 @@ export function BoardView({
       ),
     );
     const res = await updateTaskStatus(taskId, newStatusId);
-    if (res.error) router.refresh();
+    if (res.error) {
+      setToast(res.error);
+      router.refresh();
+    }
   }
 
   if (statuses.length === 0) {
@@ -145,7 +187,13 @@ export function BoardView({
                 }}
               >
                 {colTasks.map((t) => (
-                  <BoardCard key={t.id} task={t} draggable={writable} />
+                  <BoardCard
+                    key={t.id}
+                    task={t}
+                    draggable={writable}
+                    blocked={blockInfo(t).blocked}
+                    childCount={childCount.get(t.id) ?? 0}
+                  />
                 ))}
               </Column>
             );
@@ -160,6 +208,12 @@ export function BoardView({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg animate-fade-in">
+          {toast}
+        </div>
+      )}
 
       {writable && (
         <TaskDialog
@@ -228,9 +282,13 @@ function Column({
 function BoardCard({
   task,
   draggable,
+  blocked,
+  childCount,
 }: {
   task: TaskWithRelations;
   draggable: boolean;
+  blocked?: boolean;
+  childCount?: number;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -243,12 +301,20 @@ function BoardCard({
       className={cn(isDragging && "opacity-40")}
       {...(draggable ? { ...listeners, ...attributes } : {})}
     >
-      <CardInner task={task} />
+      <CardInner task={task} blocked={blocked} childCount={childCount} />
     </div>
   );
 }
 
-function CardInner({ task }: { task: TaskWithRelations }) {
+function CardInner({
+  task,
+  blocked,
+  childCount,
+}: {
+  task: TaskWithRelations;
+  blocked?: boolean;
+  childCount?: number;
+}) {
   const done = task.status?.category === "done";
   const due = dueLabel(task.due_date);
   const overdue = isOverdue(task.due_date, done);
@@ -267,6 +333,18 @@ function CardInner({ task }: { task: TaskWithRelations }) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <PriorityBadge priority={task.priority as Priority} />
+        {childCount ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
+            <GitBranch className="size-3" />
+            {childCount}
+          </span>
+        ) : null}
+        {blocked && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
+            <Lock className="size-3" />
+            Locked
+          </span>
+        )}
         {task.team && (
           <span
             className="inline-flex items-center gap-1 text-xs text-muted-foreground"

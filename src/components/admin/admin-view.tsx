@@ -10,6 +10,12 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  MoreHorizontal,
+  KeyRound,
+  TriangleAlert,
+  Copy,
+  Check,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -19,12 +25,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Popover, MenuItem } from "@/components/ui/popover";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import {
   createStatus,
   createTeam,
   deleteStatus,
   deleteTeam,
+  deleteUser,
+  setUserPassword,
   setUserRole,
   updateStatus,
   updateTeam,
@@ -52,11 +61,13 @@ export function AdminView({
   profiles,
   teams,
   statuses,
+  userMgmtEnabled,
 }: {
   me: Profile;
   profiles: Profile[];
   teams: Team[];
   statuses: Status[];
+  userMgmtEnabled: boolean;
 }) {
   useRealtime(["profiles", "teams", "statuses"]);
   const [tab, setTab] = React.useState<Tab>("members");
@@ -92,7 +103,13 @@ export function AdminView({
         ))}
       </div>
 
-      {tab === "members" && <Members me={me} profiles={profiles} />}
+      {tab === "members" && (
+        <Members
+          me={me}
+          profiles={profiles}
+          userMgmtEnabled={userMgmtEnabled}
+        />
+      )}
       {tab === "teams" && <Teams teams={teams} />}
       {tab === "statuses" && <Statuses statuses={statuses} />}
     </div>
@@ -100,9 +117,19 @@ export function AdminView({
 }
 
 /* ---------------- Members ---------------- */
-function Members({ me, profiles }: { me: Profile; profiles: Profile[] }) {
+function Members({
+  me,
+  profiles,
+  userMgmtEnabled,
+}: {
+  me: Profile;
+  profiles: Profile[];
+  userMgmtEnabled: boolean;
+}) {
   const router = useRouter();
   const [savingId, setSavingId] = React.useState<string | null>(null);
+  const [resetting, setResetting] = React.useState<Profile | null>(null);
+  const [deleting, setDeleting] = React.useState<Profile | null>(null);
 
   async function changeRole(id: string, role: Role) {
     setSavingId(id);
@@ -112,51 +139,264 @@ function Members({ me, profiles }: { me: Profile; profiles: Profile[] }) {
   }
 
   return (
-    <Card className="divide-y divide-border">
-      {profiles.map((p) => {
-        const isSelf = p.id === me.id;
-        return (
-          <div key={p.id} className="flex items-center gap-3 p-4">
-            <Avatar name={p.full_name} email={p.email} size={40} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">
-                {p.full_name || p.email}
-                {isSelf && (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    (you)
-                  </span>
+    <>
+      {!userMgmtEnabled && (
+        <div className="mb-3 flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
+          <TriangleAlert className="size-4 shrink-0 text-warning" />
+          <span>
+            Deleting users and resetting passwords needs the{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">
+              SUPABASE_SERVICE_ROLE_KEY
+            </code>{" "}
+            server environment variable (see README). Role changes work without
+            it.
+          </span>
+        </div>
+      )}
+
+      <Card className="divide-y divide-border">
+        {profiles.map((p) => {
+          const isSelf = p.id === me.id;
+          return (
+            <div key={p.id} className="flex items-center gap-3 p-4">
+              <Avatar name={p.full_name} email={p.email} size={40} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">
+                  {p.full_name || p.email}
+                  {isSelf && (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      (you)
+                    </span>
+                  )}
+                </p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {p.email}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {savingId === p.id && (
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 )}
-              </p>
-              <p className="truncate text-sm text-muted-foreground">{p.email}</p>
+                <Select
+                  value={p.role}
+                  disabled={isSelf}
+                  onChange={(e) => changeRole(p.id, e.target.value as Role)}
+                  className="w-32"
+                  title={isSelf ? "You can't change your own role" : undefined}
+                >
+                  {(["admin", "user", "viewer"] as Role[]).map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </Select>
+                <Popover
+                  align="end"
+                  trigger={
+                    <button
+                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted cursor-pointer"
+                      aria-label="User actions"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </button>
+                  }
+                >
+                  {(close) => (
+                    <>
+                      <MenuItem
+                        onClick={() => {
+                          close();
+                          setResetting(p);
+                        }}
+                      >
+                        <KeyRound /> Reset password
+                      </MenuItem>
+                      {!isSelf && (
+                        <MenuItem
+                          destructive
+                          onClick={() => {
+                            close();
+                            setDeleting(p);
+                          }}
+                        >
+                          <Trash2 /> Delete user
+                        </MenuItem>
+                      )}
+                    </>
+                  )}
+                </Popover>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {savingId === p.id && (
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-              )}
-              <Select
-                value={p.role}
-                disabled={isSelf}
-                onChange={(e) => changeRole(p.id, e.target.value as Role)}
-                className="w-32"
-                title={isSelf ? "You can't change your own role" : undefined}
-              >
-                {(["admin", "user", "viewer"] as Role[]).map((r) => (
-                  <option key={r} value={r}>
-                    {ROLE_LABELS[r]}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-        );
-      })}
-      <p className="p-4 text-xs text-muted-foreground">
-        New sign-ups join as <strong>Viewer</strong>. Promote teammates to{" "}
-        <strong>User</strong> (manage tasks) or <strong>Admin</strong> (full
-        access) here.
-      </p>
-    </Card>
+          );
+        })}
+        <p className="p-4 text-xs text-muted-foreground">
+          New sign-ups join as <strong>Viewer</strong>. Promote teammates to{" "}
+          <strong>User</strong> (manage tasks) or <strong>Admin</strong> (full
+          access) here.
+        </p>
+      </Card>
+
+      <ResetPasswordDialog
+        user={resetting}
+        onClose={() => setResetting(null)}
+      />
+      <ConfirmDelete
+        open={Boolean(deleting)}
+        onClose={() => setDeleting(null)}
+        title="Delete user"
+        description={`Permanently delete ${
+          deleting?.full_name || deleting?.email
+        }? They lose access immediately. Tasks they created or were assigned to are kept (unassigned).`}
+        confirmLabel="Delete user"
+        onConfirm={async () => {
+          if (!deleting) return;
+          const res = await deleteUser(deleting.id);
+          setDeleting(null);
+          if (res.error) alert(res.error);
+          router.refresh();
+        }}
+      />
+    </>
   );
+}
+
+function ResetPasswordDialog({
+  user,
+  onClose,
+}: {
+  user: Profile | null;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [done, setDone] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    if (user) {
+      setPassword(generatePassword());
+      setError(null);
+      setDone(false);
+      setCopied(false);
+    }
+  }, [user]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    const res = await setUserPassword(user.id, password);
+    setSaving(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    setDone(true);
+  }
+
+  return (
+    <Dialog open={Boolean(user)} onClose={onClose}>
+      <DialogHeader
+        title="Reset password"
+        description={
+          user ? `Set a new password for ${user.full_name || user.email}.` : ""
+        }
+      />
+      {done ? (
+        <>
+          <DialogBody>
+            <div className="rounded-lg border border-success/30 bg-success/10 p-4">
+              <p className="text-sm font-medium">Password updated.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Share this new password securely with the user. They can sign in
+                with it right away.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <code className="flex-1 rounded-md bg-card border border-border px-3 py-2 font-mono text-sm">
+                  {password}
+                </code>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(password);
+                    setCopied(true);
+                  }}
+                  title="Copy"
+                >
+                  {copied ? (
+                    <Check className="size-4 text-success" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button onClick={onClose}>Done</Button>
+          </DialogFooter>
+        </>
+      ) : (
+        <form onSubmit={save}>
+          <DialogBody className="space-y-3">
+            <div>
+              <Label htmlFor="newpw">New password</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="newpw"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={6}
+                  required
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => setPassword(generatePassword())}
+                  title="Generate"
+                >
+                  <RefreshCw className="size-4" />
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                At least 6 characters. You&apos;ll be able to copy it after saving.
+              </p>
+            </div>
+            {error && (
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || password.length < 6}>
+              {saving && <Loader2 className="size-4 animate-spin" />}
+              Set password
+            </Button>
+          </DialogFooter>
+        </form>
+      )}
+    </Dialog>
+  );
+}
+
+function generatePassword(): string {
+  const chars =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let out = "";
+  const arr = new Uint32Array(12);
+  crypto.getRandomValues(arr);
+  for (let i = 0; i < 12; i++) out += chars[arr[i] % chars.length];
+  return out;
 }
 
 /* ---------------- Teams ---------------- */

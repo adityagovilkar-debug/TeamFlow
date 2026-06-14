@@ -11,6 +11,11 @@ import {
   Eye,
   CalendarDays,
   Loader2,
+  Plus,
+  Lock,
+  CheckCircle2,
+  GitBranch,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -30,6 +35,7 @@ import {
   type Priority,
   type Profile,
   type Status,
+  type Subtask,
   type TaskWithRelations,
   type Team,
 } from "@/lib/types";
@@ -37,6 +43,8 @@ import {
 export function TaskDetail({
   me,
   task,
+  parent,
+  subtasks,
   comments,
   statuses,
   teams,
@@ -44,6 +52,8 @@ export function TaskDetail({
 }: {
   me: Profile;
   task: TaskWithRelations;
+  parent: { id: string; title: string } | null;
+  subtasks: Subtask[];
   comments: Comment[];
   statuses: Status[];
   teams: Team[];
@@ -54,6 +64,7 @@ export function TaskDetail({
 
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [subtaskOpen, setSubtaskOpen] = React.useState(false);
   const [body, setBody] = React.useState("");
   const [posting, setPosting] = React.useState(false);
 
@@ -76,11 +87,22 @@ export function TaskDetail({
     <div className="animate-fade-in">
       <Link
         href="/tasks"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
         Back to tasks
       </Link>
+
+      {parent && (
+        <Link
+          href={`/tasks/${parent.id}`}
+          className="mt-2 flex w-fit items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-80"
+        >
+          <GitBranch className="size-3.5" />
+          Part of epic: {parent.title}
+        </Link>
+      )}
+      <div className="mb-4" />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Main column */}
@@ -139,6 +161,15 @@ export function TaskDetail({
               </p>
             )}
           </Card>
+
+          {/* Subtask pipeline */}
+          {(subtasks.length > 0 || writable) && (
+            <SubtaskPipeline
+              subtasks={subtasks}
+              writable={writable}
+              onAdd={() => setSubtaskOpen(true)}
+            />
+          )}
 
           {/* Comments */}
           <div>
@@ -301,6 +332,16 @@ export function TaskDetail({
           task={task}
         />
       )}
+      {writable && (
+        <TaskDialog
+          open={subtaskOpen}
+          onClose={() => setSubtaskOpen(false)}
+          statuses={statuses}
+          teams={teams}
+          profiles={profiles}
+          parentId={task.id}
+        />
+      )}
       {admin && (
         <ConfirmDelete
           open={deleteOpen}
@@ -332,5 +373,132 @@ function Field({
       </p>
       {children}
     </div>
+  );
+}
+
+function SubtaskPipeline({
+  subtasks,
+  writable,
+  onAdd,
+}: {
+  subtasks: Subtask[];
+  writable: boolean;
+  onAdd: () => void;
+}) {
+  const done = subtasks.filter((s) => s.status?.category === "done").length;
+  const pct = subtasks.length ? Math.round((done / subtasks.length) * 100) : 0;
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 font-semibold">
+          <GitBranch className="size-4 text-primary" />
+          Pipeline
+          {subtasks.length > 0 && (
+            <span className="text-sm font-normal text-muted-foreground">
+              {done}/{subtasks.length} done
+            </span>
+          )}
+        </h3>
+        {writable && (
+          <Button variant="secondary" size="sm" onClick={onAdd}>
+            <Plus className="size-4" />
+            Add subtask
+          </Button>
+        )}
+      </div>
+
+      {subtasks.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Break this into a sequence of subtasks. Each one unlocks only when the
+          previous is done.
+        </p>
+      ) : (
+        <>
+          <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-success transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <ol className="space-y-1">
+            {subtasks.map((s, i) => (
+              <SubtaskRow
+                key={s.id}
+                index={i + 1}
+                subtask={s}
+                isLast={i === subtasks.length - 1}
+              />
+            ))}
+          </ol>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function SubtaskRow({
+  index,
+  subtask,
+  isLast,
+}: {
+  index: number;
+  subtask: Subtask;
+  isLast: boolean;
+}) {
+  const done = subtask.status?.category === "done";
+  return (
+    <li className="relative">
+      {!isLast && (
+        <span className="absolute left-3 top-7 h-[calc(100%-4px)] w-px bg-border" />
+      )}
+      <Link
+        href={`/tasks/${subtask.id}`}
+        className={cn(
+          "group flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted",
+          subtask.blocked && "opacity-70",
+        )}
+      >
+        <span
+          className={cn(
+            "z-10 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+            done
+              ? "bg-success text-white"
+              : subtask.blocked
+                ? "bg-muted text-muted-foreground"
+                : "bg-accent text-accent-foreground",
+          )}
+        >
+          {done ? <CheckCircle2 className="size-4" /> : index}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              "truncate text-sm font-medium group-hover:text-primary",
+              done && "text-muted-foreground line-through",
+            )}
+          >
+            {subtask.title}
+          </p>
+          {subtask.blocked && subtask.blockedBy && (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Lock className="size-3" />
+              Locked until “{subtask.blockedBy}” is done
+            </p>
+          )}
+        </div>
+
+        <StatusBadge status={subtask.status} />
+        {subtask.assignee && (
+          <Avatar
+            name={subtask.assignee.full_name}
+            email={subtask.assignee.email}
+            size={22}
+          />
+        )}
+        <ChevronRight className="size-4 text-muted-foreground" />
+      </Link>
+    </li>
   );
 }

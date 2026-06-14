@@ -55,6 +55,8 @@ create table if not exists public.tasks (
   team_id      uuid references public.teams (id) on delete set null,
   assignee_id  uuid references public.profiles (id) on delete set null,
   due_date     date,
+  parent_id    uuid references public.tasks (id) on delete cascade,
+  position     int not null default 0,
   created_by   uuid references public.profiles (id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
@@ -75,6 +77,7 @@ create table if not exists public.comments (
   created_at timestamptz not null default now()
 );
 
+create index if not exists idx_tasks_parent on public.tasks (parent_id);
 create index if not exists idx_tasks_status on public.tasks (status_id);
 create index if not exists idx_tasks_team on public.tasks (team_id);
 create index if not exists idx_tasks_assignee on public.tasks (assignee_id);

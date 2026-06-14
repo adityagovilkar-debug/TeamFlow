@@ -1,11 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
-import type {
-  Comment,
-  Profile,
-  Status,
-  Task,
-  TaskWithRelations,
-  Team,
+import {
+  computeBlocked,
+  type Comment,
+  type Profile,
+  type SiblingForBlocking,
+  type Status,
+  type Subtask,
+  type Task,
+  type TaskWithRelations,
+  type Team,
 } from "@/lib/types";
 
 export async function getStatuses(): Promise<Status[]> {
@@ -82,6 +85,42 @@ export async function getTaskById(
     .eq("id", id)
     .single();
   return data ? shapeTask(data as RawTask) : null;
+}
+
+/** Ordered subtasks of an epic, each with its computed lock state. */
+export async function getSubtasks(parentId: string): Promise<Subtask[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("parent_id", parentId)
+    .order("position", { ascending: true });
+
+  const tasks = ((data as RawTask[]) ?? []).map(shapeTask);
+  const siblings: SiblingForBlocking[] = tasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    position: t.position,
+    category: t.status?.category ?? null,
+  }));
+
+  return tasks.map((t) => ({
+    ...t,
+    ...computeBlocked(t.id, t.position, siblings),
+  }));
+}
+
+/** Minimal parent (epic) info for a subtask's breadcrumb link. */
+export async function getParentSummary(
+  parentId: string,
+): Promise<{ id: string; title: string } | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("tasks")
+    .select("id, title")
+    .eq("id", parentId)
+    .single();
+  return (data as { id: string; title: string }) ?? null;
 }
 
 export async function getComments(taskId: string): Promise<Comment[]> {

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "@/lib/auth";
 import { getProfiles, getStatuses, getTeams } from "@/lib/data";
+import { isServiceRoleConfigured } from "@/lib/supabase/admin";
 import { AdminView } from "@/components/admin/admin-view";
 
 export default async function AdminPage() {
@@ -20,6 +21,7 @@ export default async function AdminPage() {
       profiles={profiles}
       teams={teams}
       statuses={statuses}
+      userMgmtEnabled={isServiceRoleConfigured()}
     />
   );
 }

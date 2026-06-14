@@ -31,6 +31,7 @@ export function TaskDialog({
   profiles,
   task,
   defaultStatusId,
+  parentId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -39,9 +40,11 @@ export function TaskDialog({
   profiles: Profile[];
   task?: TaskWithRelations | null;
   defaultStatusId?: string | null;
+  parentId?: string | null;
 }) {
   const router = useRouter();
   const editing = Boolean(task);
+  const isSubtask = Boolean(parentId) && !editing;
 
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -94,6 +97,7 @@ export function TaskDialog({
       assignee_id: assigneeId || null,
       due_date: dueDate || null,
       watchers,
+      parent_id: parentId ?? null,
     };
 
     const res = task
@@ -112,11 +116,13 @@ export function TaskDialog({
   return (
     <Dialog open={open} onClose={onClose} className="max-w-2xl">
       <DialogHeader
-        title={editing ? "Edit task" : "Create task"}
+        title={editing ? "Edit task" : isSubtask ? "Add subtask" : "Create task"}
         description={
           editing
             ? "Update the details below."
-            : "Add a task and assign it to your team."
+            : isSubtask
+              ? "It's added to the end of this epic's pipeline."
+              : "Add a task and assign it to your team."
         }
       />
       <form onSubmit={onSubmit}>
@@ -234,7 +240,7 @@ export function TaskDialog({
           </Button>
           <Button type="submit" disabled={saving || !title.trim()}>
             {saving && <Loader2 className="size-4 animate-spin" />}
-            {editing ? "Save changes" : "Create task"}
+            {editing ? "Save changes" : isSubtask ? "Add subtask" : "Create task"}
           </Button>
         </DialogFooter>
       </form>

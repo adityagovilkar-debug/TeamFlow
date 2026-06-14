@@ -69,11 +69,41 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 6. **Sign up** — the **first account becomes Admin**. Teammates who sign up after
    join as **Viewer**; promote them in **Admin → Members**.
 
-> **Already have the database from an earlier version?** Run the migration in
-> [`supabase/migrations/01_email_notifications.sql`](supabase/migrations/01_email_notifications.sql)
-> in the Supabase SQL editor to add the notification preference column.
+> **Already have the database from an earlier version?** Run the migrations in
+> [`supabase/migrations/`](supabase/migrations) (in order) in the Supabase SQL
+> editor — `01_email_notifications.sql` (notification preference) and
+> `02_subtasks_pipeline.sql` (epics + subtask pipeline). They're safe to re-run.
 
 ---
+
+## Epics & subtask pipelines
+
+Open any task and use the **Pipeline** section to break it into ordered subtasks.
+Each subtask **unlocks only when the previous one is Done** — a locked subtask
+can't be moved to In Progress / Done (enforced in the UI, on the board, and at the
+server). Epics show a 🜸 branch badge with their subtask count, and locked subtasks
+show a 🔒 badge in the list and board.
+
+## User management (admin)
+
+Admins can manage members from **Admin → Members**:
+
+- **Change roles** (works with just the public key).
+- **Reset a password** — set or generate a new one and share it; the user can sign
+  in immediately. *(requires the service-role key — see below)*
+- **Delete a user** — removes their login and profile immediately. *(requires the
+  service-role key)*
+
+### Enable delete / password reset
+
+These two actions use Supabase's admin API, which needs the **service-role key**:
+
+1. Supabase → **Project Settings → API Keys** → copy the **`service_role` (secret)** key.
+2. Add it to `.env.local` (and Vercel) as `SUPABASE_SERVICE_ROLE_KEY=...` and restart.
+
+> ⚠️ The service-role key bypasses all security rules. It is used **only on the
+> server**, never sent to the browser, and must never be committed. The actions are
+> also guarded so only admins can call them.
 
 ## Email notifications (optional)
 
@@ -118,6 +148,7 @@ task actions still succeed.
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `NEXT_PUBLIC_APP_URL` — set to your Vercel domain (so email links point to prod)
+   - `SUPABASE_SERVICE_ROLE_KEY` (only if using admin delete-user / password-reset)
    - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (only if using email notifications)
 4. **Deploy.** Vercel auto-detects Next.js; no extra config needed.
 5. **Point Supabase at your live URL** so auth redirects work:

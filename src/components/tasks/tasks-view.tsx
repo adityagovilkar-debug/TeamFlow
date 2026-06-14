@@ -13,6 +13,8 @@ import {
   MessageSquare,
   Eye,
   CalendarClock,
+  GitBranch,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,10 +32,12 @@ import { cn } from "@/lib/utils";
 import {
   PRIORITIES,
   canWrite,
+  computeBlocked,
   isAdmin,
   type Priority,
   type Profile,
   type Role,
+  type SiblingForBlocking,
   type Status,
   type TaskWithRelations,
   type Team,
@@ -68,6 +72,27 @@ export function TasksView({
 
   const writable = canWrite(role);
   const admin = isAdmin(role);
+
+  // Epic/subtask relationships, computed from the full task set.
+  const childCount = new Map<string, number>();
+  const siblingsByParent = new Map<string, SiblingForBlocking[]>();
+  for (const t of tasks) {
+    if (!t.parent_id) continue;
+    childCount.set(t.parent_id, (childCount.get(t.parent_id) ?? 0) + 1);
+    const arr = siblingsByParent.get(t.parent_id) ?? [];
+    arr.push({
+      id: t.id,
+      title: t.title,
+      position: t.position,
+      category: t.status?.category ?? null,
+    });
+    siblingsByParent.set(t.parent_id, arr);
+  }
+  const isBlocked = (t: TaskWithRelations) =>
+    t.parent_id
+      ? computeBlocked(t.id, t.position, siblingsByParent.get(t.parent_id) ?? [])
+          .blocked
+      : false;
 
   const filtered = tasks.filter((t) => {
     if (q && !t.title.toLowerCase().includes(q.toLowerCase())) return false;
@@ -235,6 +260,18 @@ export function TasksView({
                           {t.title}
                         </Link>
                         <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
+                          {childCount.has(t.id) && (
+                            <span className="flex items-center gap-1 font-medium text-primary">
+                              <GitBranch className="size-3" />
+                              Epic · {childCount.get(t.id)}
+                            </span>
+                          )}
+                          {isBlocked(t) && (
+                            <span className="flex items-center gap-1 text-warning">
+                              <Lock className="size-3" />
+                              Locked
+                            </span>
+                          )}
                           {t.watchers.length > 0 && (
                             <span className="flex items-center gap-1">
                               <Eye className="size-3" />
