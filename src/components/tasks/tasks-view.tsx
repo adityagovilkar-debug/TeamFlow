@@ -31,6 +31,7 @@ import { dueLabel, isOverdue } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import {
   PRIORITIES,
+  canEditTask,
   canWrite,
   computeBlocked,
   isAdmin,
@@ -45,12 +46,14 @@ import {
 
 export function TasksView({
   role,
+  meId,
   tasks,
   statuses,
   teams,
   profiles,
 }: {
   role: Role;
+  meId: string;
   tasks: TaskWithRelations[];
   statuses: Status[];
   teams: Team[];
@@ -75,10 +78,13 @@ export function TasksView({
 
   // Epic/subtask relationships, computed from the full task set.
   const childCount = new Map<string, number>();
+  const doneCount = new Map<string, number>();
   const siblingsByParent = new Map<string, SiblingForBlocking[]>();
   for (const t of tasks) {
     if (!t.parent_id) continue;
     childCount.set(t.parent_id, (childCount.get(t.parent_id) ?? 0) + 1);
+    if (t.status?.category === "done")
+      doneCount.set(t.parent_id, (doneCount.get(t.parent_id) ?? 0) + 1);
     const arr = siblingsByParent.get(t.parent_id) ?? [];
     arr.push({
       id: t.id,
@@ -261,9 +267,22 @@ export function TasksView({
                         </Link>
                         <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
                           {childCount.has(t.id) && (
-                            <span className="flex items-center gap-1 font-medium text-primary">
+                            <span className="flex items-center gap-1.5 font-medium text-primary">
                               <GitBranch className="size-3" />
-                              Epic · {childCount.get(t.id)}
+                              Epic · {doneCount.get(t.id) ?? 0}/
+                              {childCount.get(t.id)}
+                              <span className="inline-block h-1.5 w-12 overflow-hidden rounded-full bg-muted align-middle">
+                                <span
+                                  className="block h-full rounded-full bg-success"
+                                  style={{
+                                    width: `${Math.round(
+                                      ((doneCount.get(t.id) ?? 0) /
+                                        (childCount.get(t.id) || 1)) *
+                                        100,
+                                    )}%`,
+                                  }}
+                                />
+                              </span>
                             </span>
                           )}
                           {isBlocked(t) && (
@@ -338,7 +357,7 @@ export function TasksView({
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {writable && (
+                        {(canEditTask(role, t, meId) || admin) && (
                           <Popover
                             align="end"
                             trigger={
@@ -349,15 +368,17 @@ export function TasksView({
                           >
                             {(close) => (
                               <>
-                                <MenuItem
-                                  onClick={() => {
-                                    close();
-                                    setEditing(t);
-                                    setDialogOpen(true);
-                                  }}
-                                >
-                                  <Pencil /> Edit
-                                </MenuItem>
+                                {canEditTask(role, t, meId) && (
+                                  <MenuItem
+                                    onClick={() => {
+                                      close();
+                                      setEditing(t);
+                                      setDialogOpen(true);
+                                    }}
+                                  >
+                                    <Pencil /> Edit
+                                  </MenuItem>
+                                )}
                                 {admin && (
                                   <MenuItem
                                     destructive
@@ -383,7 +404,7 @@ export function TasksView({
         </div>
       )}
 
-      {writable && (
+      {(writable || role === "contributor") && (
         <TaskDialog
           open={dialogOpen}
           onClose={() => setDialogOpen(false)}

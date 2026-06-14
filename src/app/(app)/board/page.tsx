@@ -14,6 +14,7 @@ export default async function BoardPage() {
   return (
     <BoardView
       role={profile!.role}
+      meId={profile!.id}
       tasks={tasks}
       statuses={statuses}
       teams={teams}

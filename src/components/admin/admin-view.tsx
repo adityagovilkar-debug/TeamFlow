@@ -184,11 +184,13 @@ function Members({
                   className="w-32"
                   title={isSelf ? "You can't change your own role" : undefined}
                 >
-                  {(["admin", "user", "viewer"] as Role[]).map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABELS[r]}
-                    </option>
-                  ))}
+                  {(["admin", "user", "contributor", "viewer"] as Role[]).map(
+                    (r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABELS[r]}
+                      </option>
+                    ),
+                  )}
                 </Select>
                 <Popover
                   align="end"
@@ -229,10 +231,11 @@ function Members({
             </div>
           );
         })}
-        <p className="p-4 text-xs text-muted-foreground">
-          New sign-ups join as <strong>Viewer</strong>. Promote teammates to{" "}
-          <strong>User</strong> (manage tasks) or <strong>Admin</strong> (full
-          access) here.
+        <p className="p-4 text-xs leading-relaxed text-muted-foreground">
+          New sign-ups join as <strong>Viewer</strong> (read-only). Promote to{" "}
+          <strong>Contributor</strong> (edit & comment only on tasks assigned to
+          them), <strong>User</strong> (create & manage any task), or{" "}
+          <strong>Admin</strong> (full access).
         </p>
       </Card>
 

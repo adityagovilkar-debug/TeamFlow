@@ -415,6 +415,29 @@ export async function setUserRole(
   return {};
 }
 
+// ---------- Reorder subtasks in an epic's pipeline (admin) ----------
+export async function reorderSubtasks(
+  parentId: string,
+  orderedIds: string[],
+): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ position: i })
+      .eq("id", orderedIds[i])
+      .eq("parent_id", parentId);
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath(`/tasks/${parentId}`);
+  revalidateTaskViews();
+  return {};
+}
+
 // ---------- Admin: privileged user management (service role) ----------
 export async function deleteUser(userId: string): Promise<Result> {
   const supabase = await createClient();

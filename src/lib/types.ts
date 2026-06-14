@@ -1,4 +1,4 @@
-export type Role = "admin" | "user" | "viewer";
+export type Role = "admin" | "user" | "contributor" | "viewer";
 export type Priority = "low" | "medium" | "high" | "urgent";
 export type StatusCategory = "todo" | "in_progress" | "done";
 
@@ -107,13 +107,32 @@ export const PRIORITIES: { value: Priority; label: string; color: string }[] = [
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Admin",
   user: "User",
+  contributor: "Contributor",
   viewer: "Viewer",
 };
 
+/** Can create new tasks (and edit any task). Admins and Users. */
 export function canWrite(role: Role | undefined | null): boolean {
   return role === "admin" || role === "user";
 }
 
 export function isAdmin(role: Role | undefined | null): boolean {
   return role === "admin";
+}
+
+/**
+ * Can this user edit/comment on a specific task?
+ * - admin/user: any task
+ * - contributor: only tasks assigned to them
+ * - viewer: none
+ */
+export function canEditTask(
+  role: Role | undefined | null,
+  task: { assignee_id: string | null },
+  userId: string | undefined | null,
+): boolean {
+  if (canWrite(role)) return true;
+  if (role === "contributor")
+    return Boolean(userId) && task.assignee_id === userId;
+  return false;
 }

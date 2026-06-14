@@ -52,7 +52,9 @@ export function Sidebar({ profile }: { profile: Profile }) {
       ? "#8b5cf6"
       : profile.role === "user"
         ? "#3b82f6"
-        : "#64748b";
+        : profile.role === "contributor"
+          ? "#14b8a6"
+          : "#64748b";
 
   return (
     <>

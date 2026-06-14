@@ -25,6 +25,7 @@ import { useRealtime } from "@/lib/use-realtime";
 import { dueLabel, isOverdue } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import {
+  canEditTask,
   canWrite,
   computeBlocked,
   type Priority,
@@ -38,12 +39,14 @@ import {
 
 export function BoardView({
   role,
+  meId,
   tasks,
   statuses,
   teams,
   profiles,
 }: {
   role: Role;
+  meId: string;
   tasks: TaskWithRelations[];
   statuses: Status[];
   teams: Team[];
@@ -75,10 +78,13 @@ export function BoardView({
 
   // Epic / blocked relationships computed from the current board state.
   const childCount = new Map<string, number>();
+  const doneCount = new Map<string, number>();
   const siblingsByParent = new Map<string, SiblingForBlocking[]>();
   for (const t of items) {
     if (!t.parent_id) continue;
     childCount.set(t.parent_id, (childCount.get(t.parent_id) ?? 0) + 1);
+    if (t.status?.category === "done")
+      doneCount.set(t.parent_id, (doneCount.get(t.parent_id) ?? 0) + 1);
     const arr = siblingsByParent.get(t.parent_id) ?? [];
     arr.push({
       id: t.id,
@@ -190,9 +196,10 @@ export function BoardView({
                   <BoardCard
                     key={t.id}
                     task={t}
-                    draggable={writable}
+                    draggable={canEditTask(role, t, meId)}
                     blocked={blockInfo(t).blocked}
                     childCount={childCount.get(t.id) ?? 0}
+                    doneCount={doneCount.get(t.id) ?? 0}
                   />
                 ))}
               </Column>
@@ -284,11 +291,13 @@ function BoardCard({
   draggable,
   blocked,
   childCount,
+  doneCount,
 }: {
   task: TaskWithRelations;
   draggable: boolean;
   blocked?: boolean;
   childCount?: number;
+  doneCount?: number;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -301,7 +310,12 @@ function BoardCard({
       className={cn(isDragging && "opacity-40")}
       {...(draggable ? { ...listeners, ...attributes } : {})}
     >
-      <CardInner task={task} blocked={blocked} childCount={childCount} />
+      <CardInner
+        task={task}
+        blocked={blocked}
+        childCount={childCount}
+        doneCount={doneCount}
+      />
     </div>
   );
 }
@@ -310,10 +324,12 @@ function CardInner({
   task,
   blocked,
   childCount,
+  doneCount,
 }: {
   task: TaskWithRelations;
   blocked?: boolean;
   childCount?: number;
+  doneCount?: number;
 }) {
   const done = task.status?.category === "done";
   const due = dueLabel(task.due_date);
@@ -336,7 +352,15 @@ function CardInner({
         {childCount ? (
           <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
             <GitBranch className="size-3" />
-            {childCount}
+            {doneCount ?? 0}/{childCount}
+            <span className="inline-block h-1.5 w-8 overflow-hidden rounded-full bg-muted align-middle">
+              <span
+                className="block h-full rounded-full bg-success"
+                style={{
+                  width: `${Math.round(((doneCount ?? 0) / childCount) * 100)}%`,
+                }}
+              />
+            </span>
           </span>
         ) : null}
         {blocked && (

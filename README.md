@@ -15,8 +15,9 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 - **Tasks** — title, description, priority (low/medium/high/urgent), due date,
   product/team, assignee, watchers, and threaded comments.
 - **Roles** (enforced in the database via Row-Level Security, not just the UI):
-  - **Admin** — full access: delete tasks, manage custom statuses & teams, assign roles.
-  - **User** — create/edit tasks, comment, manage watchers.
+  - **Admin** — full access: delete tasks, manage custom statuses & teams, assign roles, manage users.
+  - **User** — create/edit any task, comment, manage watchers.
+  - **Contributor** — can edit & comment only on tasks **assigned to them**; views everything else.
   - **Viewer** — read-only.
 - **Board** — drag-and-drop Kanban grouped by status.
 - **Dashboard** — totals, tasks by status / assignee / priority, overdue & due-soon,
@@ -81,8 +82,9 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 Open any task and use the **Pipeline** section to break it into ordered subtasks.
 Each subtask **unlocks only when the previous one is Done** — a locked subtask
 can't be moved to In Progress / Done (enforced in the UI, on the board, and at the
-server). Epics show a 🜸 branch badge with their subtask count, and locked subtasks
-show a 🔒 badge in the list and board.
+server). Epics show a branch badge with a **progress bar** (done/total) in the task
+list and board, and locked subtasks show a 🔒 badge. **Admins can drag the handle**
+in the Pipeline to reorder subtasks.
 
 ## User management (admin)
 

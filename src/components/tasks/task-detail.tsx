@@ -4,6 +4,21 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   ArrowLeft,
   Pencil,
   Trash2,
@@ -16,6 +31,7 @@ import {
   CheckCircle2,
   GitBranch,
   ChevronRight,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -24,11 +40,17 @@ import { Card } from "@/components/ui/card";
 import { PriorityBadge, StatusBadge } from "@/components/task-badges";
 import { TaskDialog } from "@/components/task-dialog";
 import { ConfirmDelete } from "@/components/confirm-delete";
-import { addComment, deleteComment, deleteTask } from "@/lib/actions";
+import {
+  addComment,
+  deleteComment,
+  deleteTask,
+  reorderSubtasks,
+} from "@/lib/actions";
 import { useRealtime } from "@/lib/use-realtime";
 import { fmtDate, fmtDateTime, isOverdue } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import {
+  canEditTask,
   canWrite,
   isAdmin,
   type Comment,
@@ -68,7 +90,8 @@ export function TaskDetail({
   const [body, setBody] = React.useState("");
   const [posting, setPosting] = React.useState(false);
 
-  const writable = canWrite(me.role);
+  const writable = canWrite(me.role); // can create (e.g. add subtasks)
+  const canEdit = canEditTask(me.role, task, me.id); // can edit/comment this task
   const admin = isAdmin(me.role);
   const done = task.status?.category === "done";
   const overdue = isOverdue(task.due_date, done);
@@ -109,16 +132,18 @@ export function TaskDetail({
         <div className="space-y-6 lg:col-span-2">
           <div className="flex items-start justify-between gap-4">
             <h1 className="text-2xl font-bold tracking-tight">{task.title}</h1>
-            {writable && (
+            {(canEdit || admin) && (
               <div className="flex shrink-0 gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setEditOpen(true)}
-                >
-                  <Pencil className="size-4" />
-                  Edit
-                </Button>
+                {canEdit && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setEditOpen(true)}
+                  >
+                    <Pencil className="size-4" />
+                    Edit
+                  </Button>
+                )}
                 {admin && (
                   <Button
                     variant="secondary"
@@ -167,6 +192,8 @@ export function TaskDetail({
             <SubtaskPipeline
               subtasks={subtasks}
               writable={writable}
+              canReorder={admin}
+              parentId={task.id}
               onAdd={() => setSubtaskOpen(true)}
             />
           )}
@@ -178,7 +205,7 @@ export function TaskDetail({
               <span className="text-muted-foreground">({comments.length})</span>
             </h3>
 
-            {writable && (
+            {canEdit && (
               <form onSubmit={postComment} className="mb-5 flex gap-3">
                 <Avatar name={me.full_name} email={me.email} size={36} />
                 <div className="flex-1">
@@ -322,7 +349,7 @@ export function TaskDetail({
         </div>
       </div>
 
-      {writable && (
+      {canEdit && (
         <TaskDialog
           open={editOpen}
           onClose={() => setEditOpen(false)}
@@ -379,14 +406,41 @@ function Field({
 function SubtaskPipeline({
   subtasks,
   writable,
+  canReorder,
+  parentId,
   onAdd,
 }: {
   subtasks: Subtask[];
   writable: boolean;
+  canReorder: boolean;
+  parentId: string;
   onAdd: () => void;
 }) {
-  const done = subtasks.filter((s) => s.status?.category === "done").length;
-  const pct = subtasks.length ? Math.round((done / subtasks.length) * 100) : 0;
+  const router = useRouter();
+  const [items, setItems] = React.useState(subtasks);
+  React.useEffect(() => setItems(subtasks), [subtasks]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  const done = items.filter((s) => s.status?.category === "done").length;
+  const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+
+  async function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldI = items.findIndex((i) => i.id === active.id);
+    const newI = items.findIndex((i) => i.id === over.id);
+    if (oldI < 0 || newI < 0) return;
+    const next = arrayMove(items, oldI, newI);
+    setItems(next); // optimistic
+    await reorderSubtasks(
+      parentId,
+      next.map((i) => i.id),
+    );
+    router.refresh();
+  }
 
   return (
     <Card className="p-5">
@@ -394,9 +448,9 @@ function SubtaskPipeline({
         <h3 className="flex items-center gap-2 font-semibold">
           <GitBranch className="size-4 text-primary" />
           Pipeline
-          {subtasks.length > 0 && (
+          {items.length > 0 && (
             <span className="text-sm font-normal text-muted-foreground">
-              {done}/{subtasks.length} done
+              {done}/{items.length} done
             </span>
           )}
         </h3>
@@ -408,7 +462,7 @@ function SubtaskPipeline({
         )}
       </div>
 
-      {subtasks.length === 0 ? (
+      {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Break this into a sequence of subtasks. Each one unlocks only when the
           previous is done.
@@ -421,82 +475,135 @@ function SubtaskPipeline({
               style={{ width: `${pct}%` }}
             />
           </div>
-          <ol className="space-y-1">
-            {subtasks.map((s, i) => (
-              <SubtaskRow
-                key={s.id}
-                index={i + 1}
-                subtask={s}
-                isLast={i === subtasks.length - 1}
-              />
-            ))}
-          </ol>
+          {canReorder ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={onDragEnd}
+            >
+              <SortableContext
+                items={items.map((i) => i.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <ol className="space-y-1">
+                  {items.map((s, i) => (
+                    <SubtaskRow key={s.id} index={i + 1} subtask={s} sortable />
+                  ))}
+                </ol>
+              </SortableContext>
+              {canReorder && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Drag the handle to reorder the pipeline.
+                </p>
+              )}
+            </DndContext>
+          ) : (
+            <ol className="space-y-1">
+              {items.map((s, i) => (
+                <SubtaskRow key={s.id} index={i + 1} subtask={s} />
+              ))}
+            </ol>
+          )}
         </>
       )}
     </Card>
   );
 }
 
-function SubtaskRow({
+function SubtaskRowContent({
   index,
   subtask,
-  isLast,
 }: {
   index: number;
   subtask: Subtask;
-  isLast: boolean;
 }) {
   const done = subtask.status?.category === "done";
   return (
-    <li className="relative">
-      {!isLast && (
-        <span className="absolute left-3 top-7 h-[calc(100%-4px)] w-px bg-border" />
+    <>
+      <span
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+          done
+            ? "bg-success text-white"
+            : subtask.blocked
+              ? "bg-muted text-muted-foreground"
+              : "bg-accent text-accent-foreground",
+        )}
+      >
+        {done ? <CheckCircle2 className="size-4" /> : index}
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "truncate text-sm font-medium group-hover:text-primary",
+            done && "text-muted-foreground line-through",
+          )}
+        >
+          {subtask.title}
+        </p>
+        {subtask.blocked && subtask.blockedBy && (
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Lock className="size-3" />
+            Locked until “{subtask.blockedBy}” is done
+          </p>
+        )}
+      </div>
+
+      <StatusBadge status={subtask.status} />
+      {subtask.assignee && (
+        <Avatar
+          name={subtask.assignee.full_name}
+          email={subtask.assignee.email}
+          size={22}
+        />
+      )}
+    </>
+  );
+}
+
+function SubtaskRow({
+  index,
+  subtask,
+  sortable,
+}: {
+  index: number;
+  subtask: Subtask;
+  sortable?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: subtask.id, disabled: !sortable });
+
+  const style = sortable
+    ? { transform: CSS.Transform.toString(transform), transition }
+    : undefined;
+
+  return (
+    <li
+      ref={sortable ? setNodeRef : undefined}
+      style={style}
+      className={cn(
+        "flex items-center gap-1 rounded-lg",
+        isDragging && "z-10 bg-card shadow-md",
+        subtask.blocked && "opacity-70",
+      )}
+    >
+      {sortable && (
+        <button
+          type="button"
+          className="cursor-grab touch-none rounded p-1 text-muted-foreground hover:bg-muted active:cursor-grabbing"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
       )}
       <Link
         href={`/tasks/${subtask.id}`}
-        className={cn(
-          "group flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted",
-          subtask.blocked && "opacity-70",
-        )}
+        className="group flex flex-1 items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
       >
-        <span
-          className={cn(
-            "z-10 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-            done
-              ? "bg-success text-white"
-              : subtask.blocked
-                ? "bg-muted text-muted-foreground"
-                : "bg-accent text-accent-foreground",
-          )}
-        >
-          {done ? <CheckCircle2 className="size-4" /> : index}
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "truncate text-sm font-medium group-hover:text-primary",
-              done && "text-muted-foreground line-through",
-            )}
-          >
-            {subtask.title}
-          </p>
-          {subtask.blocked && subtask.blockedBy && (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Lock className="size-3" />
-              Locked until “{subtask.blockedBy}” is done
-            </p>
-          )}
-        </div>
-
-        <StatusBadge status={subtask.status} />
-        {subtask.assignee && (
-          <Avatar
-            name={subtask.assignee.full_name}
-            email={subtask.assignee.email}
-            size={22}
-          />
-        )}
+        <SubtaskRowContent index={index} subtask={subtask} />
         <ChevronRight className="size-4 text-muted-foreground" />
       </Link>
     </li>

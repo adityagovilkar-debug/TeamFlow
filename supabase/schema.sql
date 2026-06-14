@@ -6,8 +6,10 @@
 
 -- ---------- Enums ----------
 do $$ begin
-  create type user_role as enum ('admin', 'user', 'viewer');
+  create type user_role as enum ('admin', 'user', 'contributor', 'viewer');
 exception when duplicate_object then null; end $$;
+-- If upgrading an older enum, ensure the value exists (no-op if present).
+alter type user_role add value if not exists 'contributor';
 
 do $$ begin
   create type task_priority as enum ('low', 'medium', 'high', 'urgent');
@@ -233,7 +235,14 @@ create policy tasks_insert on public.tasks
 drop policy if exists tasks_update on public.tasks;
 create policy tasks_update on public.tasks
   for update to authenticated
-  using (public.can_write()) with check (public.can_write());
+  using (
+    public.can_write()
+    or (public.current_role() = 'contributor' and assignee_id = auth.uid())
+  )
+  with check (
+    public.can_write()
+    or (public.current_role() = 'contributor' and assignee_id = auth.uid())
+  );
 
 drop policy if exists tasks_delete on public.tasks;
 create policy tasks_delete on public.tasks
@@ -247,7 +256,26 @@ create policy watchers_select on public.task_watchers
 drop policy if exists watchers_write on public.task_watchers;
 create policy watchers_write on public.task_watchers
   for all to authenticated
-  using (public.can_write()) with check (public.can_write());
+  using (
+    public.can_write()
+    or (
+      public.current_role() = 'contributor'
+      and exists (
+        select 1 from public.tasks t
+        where t.id = task_id and t.assignee_id = auth.uid()
+      )
+    )
+  )
+  with check (
+    public.can_write()
+    or (
+      public.current_role() = 'contributor'
+      and exists (
+        select 1 from public.tasks t
+        where t.id = task_id and t.assignee_id = auth.uid()
+      )
+    )
+  );
 
 -- comments: all read; admin+user create; authors edit/delete own, admins any.
 drop policy if exists comments_select on public.comments;
@@ -257,7 +285,19 @@ create policy comments_select on public.comments
 drop policy if exists comments_insert on public.comments;
 create policy comments_insert on public.comments
   for insert to authenticated
-  with check (public.can_write() and author_id = auth.uid());
+  with check (
+    author_id = auth.uid()
+    and (
+      public.can_write()
+      or (
+        public.current_role() = 'contributor'
+        and exists (
+          select 1 from public.tasks t
+          where t.id = task_id and t.assignee_id = auth.uid()
+        )
+      )
+    )
+  );
 
 drop policy if exists comments_update_own on public.comments;
 create policy comments_update_own on public.comments
