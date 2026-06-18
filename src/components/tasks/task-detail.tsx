@@ -39,7 +39,22 @@ import {
   ArchiveRestore,
   FolderClosed,
   X,
+  Clock,
+  History,
+  CheckCheck,
+  ShieldQuestion,
+  ThumbsUp,
+  Undo2,
 } from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
@@ -50,31 +65,40 @@ import { ConfirmDelete } from "@/components/confirm-delete";
 import {
   addChecklistItem,
   addComment,
+  addTimeEntry,
   archiveTask,
   deleteChecklistItem,
   deleteComment,
   deleteTask,
+  deleteTimeEntry,
   reorderSubtasks,
+  requestApproval,
+  setApproval,
   toggleChecklistItem,
   unarchiveTask,
 } from "@/lib/actions";
 import { useRealtime } from "@/lib/use-realtime";
-import { fmtDate, fmtDateTime, isOverdue } from "@/lib/date";
+import { fmtDate, fmtDateTime, fmtHours, isOverdue } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import {
+  APPROVAL_LABELS,
   canEditTask,
   canWrite,
   isAdmin,
+  type ActivityEntry,
   type ChecklistItem,
   type Comment,
   type CommentThread,
   type Folder,
+  type Label,
   type Priority,
   type Profile,
   type Status,
   type Subtask,
+  type TaskTemplate,
   type TaskWithRelations,
   type Team,
+  type TimeEntry,
 } from "@/lib/types";
 
 export function TaskDetail({
@@ -88,6 +112,10 @@ export function TaskDetail({
   teams,
   profiles,
   folders,
+  labels,
+  templates,
+  timeEntries,
+  activity,
 }: {
   me: Profile;
   task: TaskWithRelations;
@@ -99,9 +127,21 @@ export function TaskDetail({
   teams: Team[];
   profiles: Profile[];
   folders: Folder[];
+  labels: Label[];
+  templates: TaskTemplate[];
+  timeEntries: TimeEntry[];
+  activity: ActivityEntry[];
 }) {
   const router = useRouter();
-  useRealtime(["tasks", "comments", "task_watchers", "checklist_items"]);
+  useRealtime([
+    "tasks",
+    "comments",
+    "task_watchers",
+    "checklist_items",
+    "time_entries",
+    "activity",
+    "task_labels",
+  ]);
 
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -234,6 +274,21 @@ export function TaskDetail({
                 Archived
               </span>
             )}
+            {task.recurrence && task.recurrence !== "none" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium capitalize text-muted-foreground">
+                <History className="size-3" />
+                {task.recurrence}
+              </span>
+            )}
+            {task.labels.map((l) => (
+              <span
+                key={l.id}
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
+                style={{ backgroundColor: l.color }}
+              >
+                {l.name}
+              </span>
+            ))}
           </div>
 
           <Card className="p-5">
@@ -251,10 +306,26 @@ export function TaskDetail({
             )}
           </Card>
 
+          {/* Approval */}
+          <ApprovalCard task={task} canEdit={canEdit} canReview={writable} />
+
           {/* Checklist */}
           {(checklist.length > 0 || canEdit) && (
             <Checklist taskId={task.id} items={checklist} canEdit={canEdit} />
           )}
+
+          {/* Time tracking */}
+          <TimeCard
+            taskId={task.id}
+            entries={timeEntries}
+            estimateMinutes={task.estimate_minutes}
+            meId={me.id}
+            canEdit={canEdit}
+            admin={admin}
+          />
+
+          {/* Epic burndown */}
+          {subtasks.length > 0 && <Burndown subtasks={subtasks} />}
 
           {/* Subtask pipeline */}
           {(subtasks.length > 0 || writable) && (
@@ -312,10 +383,14 @@ export function TaskDetail({
                   me={me}
                   admin={admin}
                   canEdit={canEdit}
+                  people={profiles}
                 />
               ))}
             </div>
           </div>
+
+          {/* Activity */}
+          <ActivityTimeline activity={activity} />
         </div>
 
         {/* Sidebar */}
@@ -400,6 +475,8 @@ export function TaskDetail({
           teams={teams}
           profiles={profiles}
           folders={folders}
+          labels={labels}
+          templates={templates}
           task={task}
         />
       )}
@@ -411,6 +488,8 @@ export function TaskDetail({
           teams={teams}
           profiles={profiles}
           folders={folders}
+          labels={labels}
+          templates={templates}
           parentId={task.id}
           defaultFolderId={task.folder_id}
         />
@@ -799,12 +878,14 @@ function CommentItem({
   me,
   admin,
   canEdit,
+  people,
 }: {
   comment: CommentThread;
   taskId: string;
   me: Profile;
   admin: boolean;
   canEdit: boolean;
+  people: Profile[];
 }) {
   const router = useRouter();
   const [replyOpen, setReplyOpen] = React.useState(false);
@@ -830,7 +911,7 @@ function CommentItem({
         size={36}
       />
       <div className="flex-1">
-        <Bubble c={comment} me={me} admin={admin} taskId={taskId} />
+        <Bubble c={comment} me={me} admin={admin} taskId={taskId} people={people} />
 
         {canEdit && (
           <button
@@ -852,7 +933,7 @@ function CommentItem({
                   email={r.author?.email}
                   size={28}
                 />
-                <Bubble c={r} me={me} admin={admin} taskId={taskId} />
+                <Bubble c={r} me={me} admin={admin} taskId={taskId} people={people} />
               </div>
             ))}
 
@@ -906,11 +987,13 @@ function Bubble({
   me,
   admin,
   taskId,
+  people,
 }: {
   c: Comment;
   me: Profile;
   admin: boolean;
   taskId: string;
+  people: Profile[];
 }) {
   const router = useRouter();
   return (
@@ -937,7 +1020,296 @@ function Bubble({
           )}
         </div>
       </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed">{c.body}</p>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed">
+        {renderWithMentions(c.body, people)}
+      </p>
+    </div>
+  );
+}
+
+/** Render comment text, bolding @mentions that match a teammate name/handle. */
+function renderWithMentions(body: string, people: Profile[]) {
+  const names = people
+    .map((p) => (p.full_name || "").trim())
+    .concat(people.map((p) => p.email?.split("@")[0] ?? ""))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length); // longest first
+  if (names.length === 0) return body;
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`@(${escaped.join("|")})`, "gi");
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    if (m.index > last) out.push(body.slice(last, m.index));
+    out.push(
+      <span key={m.index} className="font-semibold text-primary">
+        {m[0]}
+      </span>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < body.length) out.push(body.slice(last));
+  return out;
+}
+
+function ApprovalCard({
+  task,
+  canEdit,
+  canReview,
+}: {
+  task: TaskWithRelations;
+  canEdit: boolean;
+  canReview: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const status = task.approval_status;
+
+  async function run(fn: () => Promise<{ error?: string }>) {
+    setBusy(true);
+    await fn();
+    setBusy(false);
+    router.refresh();
+  }
+
+  const tone =
+    status === "approved"
+      ? "border-success/40 bg-success/10"
+      : status === "changes_requested"
+        ? "border-destructive/40 bg-destructive/10"
+        : status === "pending"
+          ? "border-warning/40 bg-warning/10"
+          : "border-border";
+
+  return (
+    <Card className={cn("p-5", tone)}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <ShieldQuestion className="size-4 text-primary" />
+          <span className="font-semibold">Approval</span>
+          <span className="text-sm text-muted-foreground">
+            {APPROVAL_LABELS[status]}
+            {task.approval_at && task.approver
+              ? ` · ${task.approver.full_name || task.approver.email}, ${fmtDate(task.approval_at)}`
+              : ""}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          {canEdit && status !== "pending" && (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => requestApproval(task.id))}>
+              <ShieldQuestion className="size-4" />
+              Request approval
+            </Button>
+          )}
+          {canReview && status === "pending" && (
+            <>
+              <Button size="sm" disabled={busy} onClick={() => run(() => setApproval(task.id, "approved"))}>
+                <ThumbsUp className="size-4" />
+                Approve
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => setApproval(task.id, "changes_requested"))}>
+                <Undo2 className="size-4" />
+                Request changes
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function TimeCard({
+  taskId,
+  entries,
+  estimateMinutes,
+  meId,
+  canEdit,
+  admin,
+}: {
+  taskId: string;
+  entries: TimeEntry[];
+  estimateMinutes: number | null;
+  meId: string;
+  canEdit: boolean;
+  admin: boolean;
+}) {
+  const router = useRouter();
+  const [hours, setHours] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const logged = entries.reduce((n, e) => n + e.minutes, 0);
+  const pct = estimateMinutes ? Math.min(100, Math.round((logged / estimateMinutes) * 100)) : 0;
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const h = parseFloat(hours);
+    if (!h || h <= 0) return;
+    setSaving(true);
+    await addTimeEntry({
+      taskId,
+      minutes: Math.round(h * 60),
+      note: note.trim() || null,
+      spentOn: new Date().toISOString().slice(0, 10),
+    });
+    setHours("");
+    setNote("");
+    setSaving(false);
+    router.refresh();
+  }
+
+  if (!canEdit && entries.length === 0 && !estimateMinutes) return null;
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Clock className="size-4 text-primary" />
+        <h3 className="font-semibold">Time</h3>
+        <span className="text-sm font-normal text-muted-foreground">
+          {fmtHours(logged)} logged
+          {estimateMinutes ? ` of ${fmtHours(estimateMinutes)} estimated` : ""}
+        </span>
+      </div>
+
+      {estimateMinutes ? (
+        <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full rounded-full", pct >= 100 ? "bg-destructive" : "bg-primary")}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      ) : null}
+
+      {entries.length > 0 && (
+        <ul className="mb-3 space-y-1">
+          {entries.map((e) => (
+            <li key={e.id} className="group flex items-center gap-2 text-sm">
+              <span className="w-12 shrink-0 font-medium">{fmtHours(e.minutes)}</span>
+              <span className="text-muted-foreground">{fmtDate(e.spent_on)}</span>
+              {e.user && (
+                <span className="text-muted-foreground">· {e.user.full_name || e.user.email}</span>
+              )}
+              {e.note && <span className="truncate">— {e.note}</span>}
+              {(e.user_id === meId || admin) && (
+                <button
+                  onClick={async () => {
+                    await deleteTimeEntry(e.id, taskId);
+                    router.refresh();
+                  }}
+                  className="ml-auto text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 cursor-pointer"
+                  title="Delete entry"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canEdit && (
+        <form onSubmit={add} className="flex flex-wrap items-end gap-2">
+          <div className="w-24">
+            <Input
+              type="number"
+              min="0"
+              step="0.25"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              placeholder="Hours"
+              className="h-9"
+            />
+          </div>
+          <Input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What did you work on? (optional)"
+            className="h-9 flex-1"
+          />
+          <Button type="submit" size="sm" disabled={saving || !hours}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            Log
+          </Button>
+        </form>
+      )}
+    </Card>
+  );
+}
+
+function Burndown({ subtasks }: { subtasks: Subtask[] }) {
+  const total = subtasks.length;
+  // Cumulative completions over time → remaining count per day.
+  const completions = subtasks
+    .filter((s) => s.completed_at)
+    .map((s) => s.completed_at!.slice(0, 10))
+    .sort();
+  if (completions.length === 0) return null;
+
+  const start = subtasks
+    .map((s) => (s.created_at || "").slice(0, 10))
+    .filter(Boolean)
+    .sort()[0];
+  const points: { date: string; remaining: number }[] = [
+    { date: start, remaining: total },
+  ];
+  let remaining = total;
+  for (const d of completions) {
+    remaining -= 1;
+    points.push({ date: d, remaining });
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <GitBranch className="size-4 text-primary" />
+        <h3 className="font-semibold">Burndown</h3>
+        <span className="text-sm font-normal text-muted-foreground">
+          {total - remaining}/{total} subtasks done
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <AreaChart data={points} margin={{ left: -20, top: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+          <Tooltip />
+          <Area type="stepAfter" dataKey="remaining" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </Card>
+  );
+}
+
+function ActivityTimeline({ activity }: { activity: ActivityEntry[] }) {
+  if (activity.length === 0) return null;
+  return (
+    <div>
+      <h3 className="mb-3 flex items-center gap-2 font-semibold">
+        <History className="size-4" />
+        Activity
+      </h3>
+      <ul className="space-y-3">
+        {activity.map((a) => (
+          <li key={a.id} className="flex items-start gap-3 text-sm">
+            <span className="mt-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <CheckCheck className="size-3.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="leading-snug">
+                <span className="font-medium">
+                  {a.actor?.full_name || a.actor?.email || "Someone"}
+                </span>{" "}
+                {a.summary}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {fmtDateTime(a.created_at)}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

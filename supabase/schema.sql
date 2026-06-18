@@ -72,6 +72,11 @@ create table if not exists public.tasks (
   folder_id    uuid references public.folders (id) on delete set null,
   position     int not null default 0,
   archived_at  timestamptz,
+  estimate_minutes int,
+  recurrence   text not null default 'none' check (recurrence in ('none','daily','weekly','monthly')),
+  approval_status text not null default 'none' check (approval_status in ('none','pending','approved','changes_requested')),
+  approval_by  uuid references public.profiles (id) on delete set null,
+  approval_at  timestamptz,
   created_by   uuid references public.profiles (id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
@@ -103,11 +108,76 @@ create table if not exists public.checklist_items (
   created_at timestamptz not null default now()
 );
 
+-- Labels: colored tags for tasks (many-to-many).
+create table if not exists public.labels (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  color      text not null default '#6366f1',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.task_labels (
+  task_id  uuid not null references public.tasks (id) on delete cascade,
+  label_id uuid not null references public.labels (id) on delete cascade,
+  primary key (task_id, label_id)
+);
+
+-- Time tracking: logged time entries (minutes) against tasks.
+create table if not exists public.time_entries (
+  id         uuid primary key default gen_random_uuid(),
+  task_id    uuid not null references public.tasks (id) on delete cascade,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  minutes    int not null check (minutes > 0),
+  note       text,
+  spent_on   date not null default current_date,
+  created_at timestamptz not null default now()
+);
+
+-- Activity log: append-only feed of who did what.
+create table if not exists public.activity (
+  id         uuid primary key default gen_random_uuid(),
+  task_id    uuid references public.tasks (id) on delete cascade,
+  actor_id   uuid references public.profiles (id) on delete set null,
+  type       text not null,
+  summary    text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Task templates (+ their checklist items) for one-click task creation.
+create table if not exists public.task_templates (
+  id               uuid primary key default gen_random_uuid(),
+  name             text not null,
+  title            text not null,
+  description      text,
+  priority         task_priority not null default 'medium',
+  team_id          uuid references public.teams (id) on delete set null,
+  estimate_minutes int,
+  created_at       timestamptz not null default now()
+);
+
+create table if not exists public.template_checklist_items (
+  id          uuid primary key default gen_random_uuid(),
+  template_id uuid not null references public.task_templates (id) on delete cascade,
+  body        text not null,
+  position    int not null default 0
+);
+
 -- Idempotent upgrades for existing databases (no-ops on a fresh install).
 alter table public.tasks    add column if not exists start_date  date;
 alter table public.tasks    add column if not exists folder_id   uuid references public.folders (id) on delete set null;
 alter table public.tasks    add column if not exists archived_at timestamptz;
+alter table public.tasks    add column if not exists estimate_minutes int;
+alter table public.tasks    add column if not exists recurrence text not null default 'none';
+alter table public.tasks    add column if not exists approval_status text not null default 'none';
+alter table public.tasks    add column if not exists approval_by uuid references public.profiles (id) on delete set null;
+alter table public.tasks    add column if not exists approval_at timestamptz;
 alter table public.comments add column if not exists parent_id   uuid references public.comments (id) on delete cascade;
+do $$ begin
+  alter table public.tasks add constraint tasks_recurrence_check check (recurrence in ('none','daily','weekly','monthly'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.tasks add constraint tasks_approval_status_check check (approval_status in ('none','pending','approved','changes_requested'));
+exception when duplicate_object then null; end $$;
 
 create index if not exists idx_tasks_parent on public.tasks (parent_id);
 create index if not exists idx_tasks_status on public.tasks (status_id);
@@ -120,6 +190,12 @@ create index if not exists idx_comments_task on public.comments (task_id);
 create index if not exists idx_comments_parent on public.comments (parent_id);
 create index if not exists idx_checklist_task on public.checklist_items (task_id);
 create index if not exists idx_watchers_task on public.task_watchers (task_id);
+create index if not exists idx_task_labels_task on public.task_labels (task_id);
+create index if not exists idx_time_entries_task on public.time_entries (task_id);
+create index if not exists idx_time_entries_user on public.time_entries (user_id);
+create index if not exists idx_activity_task on public.activity (task_id, created_at desc);
+create index if not exists idx_activity_created on public.activity (created_at desc);
+create index if not exists idx_template_items on public.template_checklist_items (template_id);
 
 -- ---------- Helpers ----------
 -- SECURITY DEFINER so policies can read a user's role without recursive RLS.
@@ -222,6 +298,12 @@ alter table public.tasks enable row level security;
 alter table public.task_watchers enable row level security;
 alter table public.comments enable row level security;
 alter table public.checklist_items enable row level security;
+alter table public.labels enable row level security;
+alter table public.task_labels enable row level security;
+alter table public.time_entries enable row level security;
+alter table public.activity enable row level security;
+alter table public.task_templates enable row level security;
+alter table public.template_checklist_items enable row level security;
 
 -- profiles: everyone authenticated can read; users edit own; admins edit anyone (incl. role).
 drop policy if exists profiles_select on public.profiles;
@@ -386,6 +468,88 @@ create policy checklist_write on public.checklist_items
     )
   );
 
+-- labels: all read; admin+user manage the set.
+drop policy if exists labels_select on public.labels;
+create policy labels_select on public.labels
+  for select to authenticated using (true);
+drop policy if exists labels_write on public.labels;
+create policy labels_write on public.labels
+  for all to authenticated
+  using (public.can_write()) with check (public.can_write());
+
+-- task_labels: all read; admin+user, or contributor on their assigned task.
+drop policy if exists task_labels_select on public.task_labels;
+create policy task_labels_select on public.task_labels
+  for select to authenticated using (true);
+drop policy if exists task_labels_write on public.task_labels;
+create policy task_labels_write on public.task_labels
+  for all to authenticated
+  using (
+    public.can_write()
+    or (
+      public.current_role() = 'contributor'
+      and exists (select 1 from public.tasks t where t.id = task_id and t.assignee_id = auth.uid())
+    )
+  )
+  with check (
+    public.can_write()
+    or (
+      public.current_role() = 'contributor'
+      and exists (select 1 from public.tasks t where t.id = task_id and t.assignee_id = auth.uid())
+    )
+  );
+
+-- time_entries: all read; log on tasks you can edit; edit/delete your own (admins any).
+drop policy if exists time_entries_select on public.time_entries;
+create policy time_entries_select on public.time_entries
+  for select to authenticated using (true);
+drop policy if exists time_entries_insert on public.time_entries;
+create policy time_entries_insert on public.time_entries
+  for insert to authenticated
+  with check (
+    user_id = auth.uid()
+    and (
+      public.can_write()
+      or (
+        public.current_role() = 'contributor'
+        and exists (select 1 from public.tasks t where t.id = task_id and t.assignee_id = auth.uid())
+      )
+    )
+  );
+drop policy if exists time_entries_modify on public.time_entries;
+create policy time_entries_modify on public.time_entries
+  for update to authenticated
+  using (user_id = auth.uid() or public.is_admin())
+  with check (user_id = auth.uid() or public.is_admin());
+drop policy if exists time_entries_delete on public.time_entries;
+create policy time_entries_delete on public.time_entries
+  for delete to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
+-- activity: all read; insert as yourself.
+drop policy if exists activity_select on public.activity;
+create policy activity_select on public.activity
+  for select to authenticated using (true);
+drop policy if exists activity_insert on public.activity;
+create policy activity_insert on public.activity
+  for insert to authenticated with check (actor_id = auth.uid());
+
+-- templates: all read; admin+user manage.
+drop policy if exists templates_select on public.task_templates;
+create policy templates_select on public.task_templates
+  for select to authenticated using (true);
+drop policy if exists templates_write on public.task_templates;
+create policy templates_write on public.task_templates
+  for all to authenticated
+  using (public.can_write()) with check (public.can_write());
+drop policy if exists template_items_select on public.template_checklist_items;
+create policy template_items_select on public.template_checklist_items
+  for select to authenticated using (true);
+drop policy if exists template_items_write on public.template_checklist_items;
+create policy template_items_write on public.template_checklist_items
+  for all to authenticated
+  using (public.can_write()) with check (public.can_write());
+
 -- ---------- Realtime ----------
 do $$ begin
   alter publication supabase_realtime add table public.tasks;
@@ -401,6 +565,21 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.folders;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.labels;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.task_labels;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.time_entries;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.activity;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.task_templates;
 exception when duplicate_object then null; end $$;
 
 -- ---------- Seed: default statuses & a couple of teams ----------

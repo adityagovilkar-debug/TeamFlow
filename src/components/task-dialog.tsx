@@ -14,14 +14,19 @@ import { Input, Label, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { PeopleSelect } from "@/components/ui/people-select";
 import { createTask, updateTask, type TaskInput } from "@/lib/actions";
+import { cn } from "@/lib/utils";
 import {
   PRIORITIES,
+  RECURRENCE_OPTIONS,
   buildFolderTree,
   flattenFolderTree,
   type Folder,
+  type Label as LabelType,
   type Priority,
   type Profile,
+  type Recurrence,
   type Status,
+  type TaskTemplate,
   type TaskWithRelations,
   type Team,
 } from "@/lib/types";
@@ -33,6 +38,8 @@ export function TaskDialog({
   teams,
   profiles,
   folders = [],
+  labels = [],
+  templates = [],
   task,
   defaultStatusId,
   defaultFolderId,
@@ -44,6 +51,8 @@ export function TaskDialog({
   teams: Team[];
   profiles: Profile[];
   folders?: Folder[];
+  labels?: LabelType[];
+  templates?: TaskTemplate[];
   task?: TaskWithRelations | null;
   defaultStatusId?: string | null;
   defaultFolderId?: string | null;
@@ -62,6 +71,10 @@ export function TaskDialog({
   const [dueDate, setDueDate] = React.useState<string>("");
   const [startDate, setStartDate] = React.useState<string>("");
   const [folderId, setFolderId] = React.useState<string>("");
+  const [estimateHours, setEstimateHours] = React.useState<string>("");
+  const [recurrence, setRecurrence] = React.useState<Recurrence>("none");
+  const [labelIds, setLabelIds] = React.useState<string[]>([]);
+  const [templateId, setTemplateId] = React.useState<string>("");
   const [watchers, setWatchers] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -85,6 +98,12 @@ export function TaskDialog({
       setDueDate(task.due_date ?? "");
       setStartDate(task.start_date ?? "");
       setFolderId(task.folder_id ?? "");
+      setEstimateHours(
+        task.estimate_minutes != null ? String(task.estimate_minutes / 60) : "",
+      );
+      setRecurrence(task.recurrence ?? "none");
+      setLabelIds(task.labels.map((l) => l.id));
+      setTemplateId("");
       setWatchers(task.watchers.map((w) => w.id));
     } else {
       setTitle("");
@@ -96,9 +115,33 @@ export function TaskDialog({
       setDueDate("");
       setStartDate("");
       setFolderId(defaultFolderId ?? "");
+      setEstimateHours("");
+      setRecurrence("none");
+      setLabelIds([]);
+      setTemplateId("");
       setWatchers([]);
     }
   }, [open, task, defaultStatusId, defaultFolderId, statuses]);
+
+  // Applying a template prefills the fields (only when creating).
+  function applyTemplate(id: string) {
+    setTemplateId(id);
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setTitle(t.title);
+    setDescription(t.description ?? "");
+    setPriority(t.priority);
+    setTeamId(t.team_id ?? "");
+    setEstimateHours(
+      t.estimate_minutes != null ? String(t.estimate_minutes / 60) : "",
+    );
+  }
+
+  function toggleLabel(id: string) {
+    setLabelIds((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+    );
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -116,8 +159,14 @@ export function TaskDialog({
       due_date: dueDate || null,
       start_date: startDate || null,
       folder_id: folderId || null,
+      estimate_minutes: estimateHours
+        ? Math.round(parseFloat(estimateHours) * 60)
+        : null,
+      recurrence,
+      labels: labelIds,
       watchers,
       parent_id: parentId ?? null,
+      template_id: !editing && templateId ? templateId : null,
     };
 
     const res = task
@@ -147,6 +196,24 @@ export function TaskDialog({
       />
       <form onSubmit={onSubmit}>
         <DialogBody className="space-y-4">
+          {!editing && !isSubtask && templates.length > 0 && (
+            <div>
+              <Label htmlFor="t-template">Start from template</Label>
+              <Select
+                id="t-template"
+                value={templateId}
+                onChange={(e) => applyTemplate(e.target.value)}
+              >
+                <option value="">Blank task</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+
           <div>
             <Label htmlFor="title">Title</Label>
             <Input
@@ -263,6 +330,33 @@ export function TaskDialog({
               </Select>
             </div>
             <div>
+              <Label htmlFor="t-estimate">Estimate (hours)</Label>
+              <Input
+                id="t-estimate"
+                type="number"
+                min="0"
+                step="0.25"
+                value={estimateHours}
+                onChange={(e) => setEstimateHours(e.target.value)}
+                placeholder="e.g. 4"
+              />
+            </div>
+            <div>
+              <Label htmlFor="t-recurrence">Repeat</Label>
+              <Select
+                id="t-recurrence"
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value as Recurrence)}
+                disabled={isSubtask}
+              >
+                {RECURRENCE_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
               <Label>Watchers</Label>
               <PeopleSelect
                 people={profiles}
@@ -271,6 +365,37 @@ export function TaskDialog({
               />
             </div>
           </div>
+
+          {labels.length > 0 && (
+            <div>
+              <Label>Labels</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {labels.map((l) => {
+                  const on = labelIds.includes(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => toggleLabel(l.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer",
+                        on
+                          ? "border-transparent text-white"
+                          : "border-border text-muted-foreground hover:bg-muted",
+                      )}
+                      style={on ? { backgroundColor: l.color } : undefined}
+                    >
+                      <span
+                        className="size-2 rounded-full"
+                        style={{ backgroundColor: l.color }}
+                      />
+                      {l.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {error && (
             <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">

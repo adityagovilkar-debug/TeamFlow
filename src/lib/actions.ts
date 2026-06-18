@@ -1,15 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { addDays, addMonths, addWeeks, parseISO, format } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
 import {
+  notifyApproval,
   notifyAssigned,
   notifyComment,
+  notifyMention,
   notifyStatusChange,
   notifyWatching,
 } from "@/lib/notify";
-import type { Priority, Role, StatusCategory } from "@/lib/types";
+import { logActivity } from "@/lib/activity";
+import type { Priority, Recurrence, Role, StatusCategory } from "@/lib/types";
 
 /** Returns the caller's id if they are an admin, else an error result. */
 async function requireAdmin(
@@ -53,8 +57,12 @@ export interface TaskInput {
   due_date: string | null;
   start_date: string | null;
   folder_id: string | null;
+  estimate_minutes: number | null;
+  recurrence: Recurrence;
+  labels: string[];
   watchers: string[];
   parent_id?: string | null;
+  template_id?: string | null;
 }
 
 /**
@@ -173,6 +181,8 @@ export async function createTask(input: TaskInput): Promise<Result> {
       due_date: input.due_date,
       start_date: input.start_date,
       folder_id: input.folder_id,
+      estimate_minutes: input.estimate_minutes,
+      recurrence: input.recurrence,
       parent_id: input.parent_id ?? null,
       position,
       created_by: user.id,
@@ -187,12 +197,38 @@ export async function createTask(input: TaskInput): Promise<Result> {
       input.watchers.map((uid) => ({ task_id: data.id, user_id: uid })),
     );
   }
+  if (input.labels.length > 0) {
+    await supabase.from("task_labels").insert(
+      input.labels.map((lid) => ({ task_id: data.id, label_id: lid })),
+    );
+  }
+  // Copy checklist items from a template, if this task was created from one.
+  if (input.template_id) {
+    const { data: tItems } = await supabase
+      .from("template_checklist_items")
+      .select("body, position")
+      .eq("template_id", input.template_id);
+    if (tItems && tItems.length > 0) {
+      await supabase.from("checklist_items").insert(
+        tItems.map((i) => ({
+          task_id: data.id,
+          body: i.body,
+          position: i.position,
+        })),
+      );
+    }
+  }
 
   // Notify the new assignee and watchers (not the creator themselves).
   if (input.assignee_id) {
     await notifyAssigned(supabase, data.id, user.id, input.assignee_id);
   }
   await notifyWatching(supabase, data.id, user.id, input.watchers);
+  await logActivity(supabase, {
+    taskId: data.id,
+    type: "created",
+    summary: `created ${input.parent_id ? "subtask" : "task"} “${input.title}”`,
+  });
 
   revalidateTaskViews();
   if (input.parent_id) revalidatePath(`/tasks/${input.parent_id}`);
@@ -244,6 +280,8 @@ export async function updateTask(
       due_date: input.due_date,
       start_date: input.start_date,
       folder_id: input.folder_id,
+      estimate_minutes: input.estimate_minutes,
+      recurrence: input.recurrence,
     })
     .eq("id", id);
 
@@ -256,15 +294,24 @@ export async function updateTask(
       input.watchers.map((uid) => ({ task_id: id, user_id: uid })),
     );
   }
+  // Reconcile labels.
+  await supabase.from("task_labels").delete().eq("task_id", id);
+  if (input.labels.length > 0) {
+    await supabase.from("task_labels").insert(
+      input.labels.map((lid) => ({ task_id: id, label_id: lid })),
+    );
+  }
 
   // Notify on the events we care about: status change, new assignee, new watchers.
   if (input.status_id && input.status_id !== prior?.status_id) {
-    await notifyStatusChange(
-      supabase,
-      id,
-      user.id,
-      await statusName(supabase, input.status_id),
-    );
+    const sName = await statusName(supabase, input.status_id);
+    await notifyStatusChange(supabase, id, user.id, sName);
+    await logActivity(supabase, {
+      taskId: id,
+      type: "status",
+      summary: `moved “${input.title}” to ${sName}`,
+    });
+    await maybeRecur(supabase, id, input.status_id);
   }
   if (input.assignee_id && input.assignee_id !== prior?.assignee_id) {
     await notifyAssigned(supabase, id, user.id, input.assignee_id);
@@ -304,16 +351,110 @@ export async function updateTaskStatus(
   if (error) return { error: error.message };
 
   if (user) {
-    await notifyStatusChange(
-      supabase,
-      id,
-      user.id,
-      await statusName(supabase, statusId),
-    );
+    const sName = await statusName(supabase, statusId);
+    await notifyStatusChange(supabase, id, user.id, sName);
+    await logActivity(supabase, {
+      taskId: id,
+      type: "status",
+      summary: `moved this task to ${sName}`,
+    });
   }
+  await maybeRecur(supabase, id, statusId);
 
   revalidateTaskViews();
   return {};
+}
+
+/**
+ * If a recurring task has just entered a "done" status, create the next
+ * occurrence: same core fields, dates shifted by the interval, checklist copied
+ * unchecked. Best-effort.
+ */
+async function maybeRecur(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  taskId: string,
+  newStatusId: string,
+): Promise<void> {
+  try {
+    const cat = await statusCategory(supabase, newStatusId);
+    if (cat !== "done") return;
+
+    const { data: t } = await supabase
+      .from("tasks")
+      .select(
+        "title, description, priority, status_id, team_id, assignee_id, folder_id, parent_id, due_date, start_date, estimate_minutes, recurrence, created_by",
+      )
+      .eq("id", taskId)
+      .single();
+    if (!t || !t.recurrence || t.recurrence === "none" || t.parent_id) return;
+
+    const shift = (d: string | null): string | null => {
+      if (!d) return null;
+      const base = parseISO(d);
+      const next =
+        t.recurrence === "daily"
+          ? addDays(base, 1)
+          : t.recurrence === "weekly"
+            ? addWeeks(base, 1)
+            : addMonths(base, 1);
+      return format(next, "yyyy-MM-dd");
+    };
+
+    // The new occurrence starts in the first (lowest-position) status.
+    const { data: firstStatus } = await supabase
+      .from("statuses")
+      .select("id")
+      .order("position", { ascending: true })
+      .limit(1)
+      .single();
+
+    const { data: created } = await supabase
+      .from("tasks")
+      .insert({
+        title: t.title,
+        description: t.description,
+        priority: t.priority,
+        status_id: firstStatus?.id ?? t.status_id,
+        team_id: t.team_id,
+        assignee_id: t.assignee_id,
+        folder_id: t.folder_id,
+        due_date: shift(t.due_date),
+        start_date: shift(t.start_date),
+        estimate_minutes: t.estimate_minutes,
+        recurrence: t.recurrence,
+        created_by: t.created_by,
+      })
+      .select("id")
+      .single();
+
+    if (created) {
+      // Copy checklist items (unchecked) and clear recurrence on the completed one.
+      const { data: items } = await supabase
+        .from("checklist_items")
+        .select("body, position")
+        .eq("task_id", taskId);
+      if (items && items.length > 0) {
+        await supabase.from("checklist_items").insert(
+          items.map((i) => ({
+            task_id: created.id,
+            body: i.body,
+            position: i.position,
+          })),
+        );
+      }
+      await supabase
+        .from("tasks")
+        .update({ recurrence: "none" })
+        .eq("id", taskId);
+      await logActivity(supabase, {
+        taskId: created.id,
+        type: "recurrence",
+        summary: `created the next “${t.title}” (recurring ${t.recurrence})`,
+      });
+    }
+  } catch {
+    // best-effort
+  }
 }
 
 export async function deleteTask(id: string): Promise<Result> {
@@ -357,8 +498,42 @@ export async function addComment(
   }
   await notifyComment(supabase, taskId, user.id, body, extra);
 
+  // @mentions: notify any teammate named in the body.
+  const mentioned = await resolveMentions(supabase, body, user.id);
+  if (mentioned.length > 0) {
+    await notifyMention(supabase, taskId, user.id, mentioned, body);
+  }
+
+  await logActivity(supabase, {
+    taskId,
+    type: "comment",
+    summary: parentId ? "replied to a comment" : "commented",
+  });
+
   revalidatePath(`/tasks/${taskId}`);
   return {};
+}
+
+/** Resolve `@Full Name` tokens in text to teammate ids (excluding the author). */
+async function resolveMentions(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  body: string,
+  authorId: string,
+): Promise<string[]> {
+  if (!body.includes("@")) return [];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, full_name, email");
+  const ids: string[] = [];
+  for (const p of profiles ?? []) {
+    const name = (p.full_name || "").trim();
+    const handle = p.email?.split("@")[0] ?? "";
+    const hit =
+      (name && body.toLowerCase().includes(`@${name.toLowerCase()}`)) ||
+      (handle && body.toLowerCase().includes(`@${handle.toLowerCase()}`));
+    if (hit && p.id !== authorId) ids.push(p.id);
+  }
+  return [...new Set(ids)];
 }
 
 export async function deleteComment(
@@ -513,6 +688,7 @@ export async function archiveTask(id: string): Promise<Result> {
     .eq("id", id);
   if (error) return { error: error.message };
 
+  await logActivity(supabase, { taskId: id, type: "archived", summary: "archived this task" });
   revalidatePath(`/tasks/${id}`);
   revalidateTaskViews();
   return {};
@@ -529,8 +705,206 @@ export async function unarchiveTask(id: string): Promise<Result> {
     .eq("id", id);
   if (error) return { error: error.message };
 
+  await logActivity(supabase, { taskId: id, type: "restored", summary: "restored this task" });
   revalidatePath(`/tasks/${id}`);
   revalidateTaskViews();
+  return {};
+}
+
+// ---------- Labels ----------
+export async function createLabel(input: {
+  name: string;
+  color: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("labels").insert(input);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
+
+export async function updateLabel(
+  id: string,
+  input: { name: string; color: string },
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("labels").update(input).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
+
+export async function deleteLabel(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("labels").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
+
+export async function setTaskLabels(
+  taskId: string,
+  labelIds: string[],
+): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, taskId)))
+    return { error: "You can't edit this task." };
+  await supabase.from("task_labels").delete().eq("task_id", taskId);
+  if (labelIds.length > 0) {
+    const { error } = await supabase
+      .from("task_labels")
+      .insert(labelIds.map((lid) => ({ task_id: taskId, label_id: lid })));
+    if (error) return { error: error.message };
+  }
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+// ---------- Approvals ----------
+export async function requestApproval(taskId: string): Promise<Result> {
+  const supabase = await createClient();
+  if (!(await canEditTaskServer(supabase, taskId)))
+    return { error: "You can't edit this task." };
+  const { error } = await supabase
+    .from("tasks")
+    .update({ approval_status: "pending", approval_by: null, approval_at: null })
+    .eq("id", taskId);
+  if (error) return { error: error.message };
+  await logActivity(supabase, { taskId, type: "approval", summary: "requested approval" });
+  await notifyApproval(supabase, taskId, null, "pending");
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+export async function setApproval(
+  taskId: string,
+  decision: "approved" | "changes_requested",
+): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  // Only admins/users approve (reviewers).
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin" && me?.role !== "user")
+    return { error: "Only admins and users can review approvals." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      approval_status: decision,
+      approval_by: user.id,
+      approval_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+  if (error) return { error: error.message };
+  await logActivity(supabase, {
+    taskId,
+    type: "approval",
+    summary: decision === "approved" ? "approved this task" : "requested changes",
+  });
+  await notifyApproval(supabase, taskId, user.id, decision);
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+// ---------- Time tracking ----------
+export async function addTimeEntry(input: {
+  taskId: string;
+  minutes: number;
+  note: string | null;
+  spentOn: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  if (!(await canEditTaskServer(supabase, input.taskId)))
+    return { error: "You can't log time on this task." };
+  if (!input.minutes || input.minutes <= 0)
+    return { error: "Enter a positive number of hours." };
+
+  const { error } = await supabase.from("time_entries").insert({
+    task_id: input.taskId,
+    user_id: user.id,
+    minutes: input.minutes,
+    note: input.note,
+    spent_on: input.spentOn,
+  });
+  if (error) return { error: error.message };
+  await logActivity(supabase, {
+    taskId: input.taskId,
+    type: "time",
+    summary: `logged ${(input.minutes / 60).toFixed(2)}h`,
+  });
+  revalidatePath(`/tasks/${input.taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+export async function deleteTimeEntry(
+  id: string,
+  taskId: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("time_entries").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath(`/tasks/${taskId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+// ---------- Task templates ----------
+export async function createTemplate(input: {
+  name: string;
+  title: string;
+  description: string | null;
+  priority: Priority;
+  team_id: string | null;
+  estimate_minutes: number | null;
+  items: string[];
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("task_templates")
+    .insert({
+      name: input.name,
+      title: input.title,
+      description: input.description,
+      priority: input.priority,
+      team_id: input.team_id,
+      estimate_minutes: input.estimate_minutes,
+    })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  const items = input.items.filter((b) => b.trim());
+  if (items.length > 0) {
+    await supabase.from("template_checklist_items").insert(
+      items.map((body, i) => ({ template_id: data.id, body, position: i })),
+    );
+  }
+  revalidatePath("/admin");
+  return {};
+}
+
+export async function deleteTemplate(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("task_templates").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
   return {};
 }
 

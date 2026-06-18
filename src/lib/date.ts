@@ -20,6 +20,12 @@ export function isOverdue(
   return isPast(d) && !isToday(d);
 }
 
+/** Minutes → a compact hours label, e.g. 90 → "1.5h", 0 → "0h". */
+export function fmtHours(minutes: number | null | undefined): string {
+  const h = (minutes ?? 0) / 60;
+  return `${Number.isInteger(h) ? h : h.toFixed(2).replace(/\.?0+$/, "")}h`;
+}
+
 export function dueLabel(due: string | null | undefined): {
   text: string;
   tone: "overdue" | "soon" | "normal" | "none";

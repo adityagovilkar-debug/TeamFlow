@@ -1,15 +1,19 @@
 import { notFound } from "next/navigation";
 import { getCurrentProfile } from "@/lib/auth";
 import {
+  getActivity,
   getChecklist,
   getComments,
   getFolders,
+  getLabels,
   getParentSummary,
   getProfiles,
   getStatuses,
   getSubtasks,
   getTaskById,
   getTeams,
+  getTemplates,
+  getTimeEntries,
 } from "@/lib/data";
 import { TaskDetail } from "@/components/tasks/task-detail";
 
@@ -29,6 +33,10 @@ export default async function TaskDetailPage({
     subtasks,
     checklist,
     folders,
+    labels,
+    templates,
+    timeEntries,
+    activity,
   ] = await Promise.all([
     getCurrentProfile(),
     getTaskById(id),
@@ -39,6 +47,10 @@ export default async function TaskDetailPage({
     getSubtasks(id),
     getChecklist(id),
     getFolders(),
+    getLabels(),
+    getTemplates(),
+    getTimeEntries(id),
+    getActivity(id),
   ]);
 
   if (!task) notFound();
@@ -59,6 +71,10 @@ export default async function TaskDetailPage({
       teams={teams}
       profiles={profiles}
       folders={folders}
+      labels={labels}
+      templates={templates}
+      timeEntries={timeEntries}
+      activity={activity}
     />
   );
 }

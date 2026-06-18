@@ -11,7 +11,13 @@ import { isEmailConfigured, sendEmail } from "@/lib/email";
  * that triggered it.
  */
 
-type EventType = "comment" | "status" | "assigned" | "watching";
+type EventType =
+  | "comment"
+  | "status"
+  | "assigned"
+  | "watching"
+  | "mention"
+  | "approval";
 
 function appUrl(): string {
   return (
@@ -89,6 +95,19 @@ function buildEmail(
     case "watching":
       subject = `👀 You're now watching “${taskTitle}”`;
       headline = `${actorName} added you as a watcher`;
+      break;
+    case "mention":
+      subject = `💬 ${actorName} mentioned you on “${taskTitle}”`;
+      headline = `${actorName} mentioned you in a comment`;
+      detail = extra?.comment
+        ? `<blockquote style="margin:12px 0;padding:10px 14px;border-left:3px solid #6366f1;background:#f6f7fb;border-radius:6px;color:#334155;">${safe(
+            extra.comment,
+          )}</blockquote>`
+        : "";
+      break;
+    case "approval":
+      subject = `✅ “${taskTitle}” — ${safe(extra?.statusName ?? "approval update")}`;
+      headline = `${actorName}: ${safe(extra?.statusName ?? "approval update")}`;
       break;
   }
 
@@ -235,5 +254,47 @@ export async function notifyWatching(
     const task = await loadTask(supabase, taskId);
     if (!task) return;
     await deliver(supabase, watcherIds, actorId, "watching", task);
+  });
+}
+
+export async function notifyMention(
+  supabase: SupabaseClient,
+  taskId: string,
+  actorId: string,
+  mentionedIds: string[],
+  comment: string,
+): Promise<void> {
+  await safe(async () => {
+    if (mentionedIds.length === 0) return;
+    const task = await loadTask(supabase, taskId);
+    if (!task) return;
+    await deliver(supabase, mentionedIds, actorId, "mention", task, { comment });
+  });
+}
+
+export async function notifyApproval(
+  supabase: SupabaseClient,
+  taskId: string,
+  actorId: string | null,
+  status: "pending" | "approved" | "changes_requested",
+): Promise<void> {
+  await safe(async () => {
+    const task = await loadTask(supabase, taskId);
+    if (!task) return;
+    const label =
+      status === "pending"
+        ? "approval requested"
+        : status === "approved"
+          ? "approved"
+          : "changes requested";
+    const watchers = await getWatcherIds(supabase, taskId);
+    await deliver(
+      supabase,
+      [task.created_by, task.assignee_id, ...watchers],
+      actorId ?? "",
+      "approval",
+      task,
+      { statusName: label },
+    );
   });
 }

@@ -37,11 +37,13 @@ import {
   canWrite,
   computeBlocked,
   type Folder,
+  type Label,
   type Priority,
   type Profile,
   type Role,
   type SiblingForBlocking,
   type Status,
+  type TaskTemplate,
   type TaskWithRelations,
   type Team,
 } from "@/lib/types";
@@ -54,6 +56,8 @@ export function BoardView({
   teams,
   profiles,
   folders,
+  labels,
+  templates,
 }: {
   role: Role;
   meId: string;
@@ -62,6 +66,8 @@ export function BoardView({
   teams: Team[];
   profiles: Profile[];
   folders: Folder[];
+  labels: Label[];
+  templates: TaskTemplate[];
 }) {
   const router = useRouter();
   useRealtime(["tasks", "comments", "task_watchers"]);
@@ -241,6 +247,8 @@ export function BoardView({
           teams={teams}
           profiles={profiles}
           folders={folders}
+          labels={labels}
+          templates={templates}
           defaultStatusId={defaultStatus}
         />
       )}
@@ -392,7 +400,30 @@ function CardInner({
             {task.team.name}
           </span>
         )}
+        {task.approval_status === "approved" && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
+            ✓ Approved
+          </span>
+        )}
+        {task.approval_status === "pending" && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
+            ⏳ Approval
+          </span>
+        )}
       </div>
+      {task.labels.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {task.labels.map((l) => (
+            <span
+              key={l.id}
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+              style={{ backgroundColor: l.color }}
+            >
+              {l.name}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="mt-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {task.due_date && (

@@ -60,11 +60,13 @@ import {
   isAdmin,
   type Folder,
   type FolderNode,
+  type Label as LabelType,
   type Priority,
   type Profile,
   type Role,
   type SiblingForBlocking,
   type Status,
+  type TaskTemplate,
   type TaskWithRelations,
   type Team,
 } from "@/lib/types";
@@ -77,6 +79,8 @@ export function TasksView({
   teams,
   profiles,
   folders,
+  labels,
+  templates,
 }: {
   role: Role;
   meId: string;
@@ -85,6 +89,8 @@ export function TasksView({
   teams: Team[];
   profiles: Profile[];
   folders: Folder[];
+  labels: LabelType[];
+  templates: TaskTemplate[];
 }) {
   const router = useRouter();
   useRealtime(["tasks", "comments", "task_watchers", "checklist_items", "folders"]);
@@ -94,6 +100,7 @@ export function TasksView({
   const [teamF, setTeamF] = React.useState("");
   const [assigneeF, setAssigneeF] = React.useState("");
   const [priorityF, setPriorityF] = React.useState("");
+  const [labelF, setLabelF] = React.useState("");
   const [overdueOnly, setOverdueOnly] = React.useState(false);
   const [view, setView] = React.useState<"active" | "archived">("active");
   const [folderF, setFolderF] = React.useState<string | null>(null); // null=all, "none"=no folder
@@ -155,13 +162,14 @@ export function TasksView({
     if (assigneeF && assigneeF !== "unassigned" && t.assignee_id !== assigneeF)
       return false;
     if (priorityF && t.priority !== priorityF) return false;
+    if (labelF && !t.labels.some((l) => l.id === labelF)) return false;
     if (overdueOnly && !isOverdue(t.due_date, t.status?.category === "done"))
       return false;
     return true;
   });
 
   const hasFilters =
-    q || statusF || teamF || assigneeF || priorityF || overdueOnly || folderF;
+    q || statusF || teamF || assigneeF || priorityF || labelF || overdueOnly || folderF;
   const activeCount = tasks.filter((t) => !t.archived_at).length;
   const archivedCount = tasks.filter((t) => t.archived_at).length;
 
@@ -275,6 +283,20 @@ export function TasksView({
                 </option>
               ))}
             </Select>
+            {labels.length > 0 && (
+              <Select
+                value={labelF}
+                onChange={(e) => setLabelF(e.target.value)}
+                className="w-auto min-w-28"
+              >
+                <option value="">All labels</option>
+                {labels.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Button
               variant={overdueOnly ? "default" : "secondary"}
               size="sm"
@@ -395,7 +417,26 @@ export function TasksView({
                                   {t.comment_count}
                                 </span>
                               )}
+                              {t.approval_status === "approved" && (
+                                <span className="font-medium text-success">✓ Approved</span>
+                              )}
+                              {t.approval_status === "pending" && (
+                                <span className="font-medium text-warning">⏳ Approval</span>
+                              )}
                             </div>
+                            {t.labels.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {t.labels.map((l) => (
+                                  <span
+                                    key={l.id}
+                                    className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                    style={{ backgroundColor: l.color }}
+                                  >
+                                    {l.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <StatusBadge status={t.status} />
@@ -527,6 +568,8 @@ export function TasksView({
           teams={teams}
           profiles={profiles}
           folders={folders}
+          labels={labels}
+          templates={templates}
           task={editing}
           defaultFolderId={
             !editing && folderF && folderF !== "none" ? folderF : null

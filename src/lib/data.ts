@@ -1,17 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
 import {
   computeBlocked,
+  type ActivityEntry,
   type ChecklistItem,
   type Comment,
   type CommentThread,
   type Folder,
+  type Label,
   type Profile,
   type SiblingForBlocking,
   type Status,
   type Subtask,
   type Task,
+  type TaskTemplate,
   type TaskWithRelations,
   type Team,
+  type TimeEntry,
 } from "@/lib/types";
 
 export async function getStatuses(): Promise<Status[]> {
@@ -46,18 +50,24 @@ const TASK_SELECT = `
   status:statuses(*),
   team:teams(*),
   assignee:assignee_id(*),
+  approver:approval_by(*),
   watchers:task_watchers(profile:profiles(*)),
+  labels:task_labels(label:labels(*)),
   comment_count:comments(count),
-  checklist:checklist_items(is_done)
+  checklist:checklist_items(is_done),
+  time:time_entries(minutes)
 `;
 
 type RawTask = Task & {
   status: Status | null;
   team: Team | null;
   assignee: Profile | null;
+  approver: Profile | null;
   watchers: { profile: Profile }[] | null;
+  labels: { label: Label }[] | null;
   comment_count: { count: number }[] | null;
   checklist: { is_done: boolean }[] | null;
+  time: { minutes: number }[] | null;
 };
 
 function shapeTask(raw: RawTask): TaskWithRelations {
@@ -67,10 +77,13 @@ function shapeTask(raw: RawTask): TaskWithRelations {
     status: raw.status ?? null,
     team: raw.team ?? null,
     assignee: raw.assignee ?? null,
+    approver: raw.approver ?? null,
     watchers: (raw.watchers ?? []).map((w) => w.profile).filter(Boolean),
+    labels: (raw.labels ?? []).map((l) => l.label).filter(Boolean),
     comment_count: raw.comment_count?.[0]?.count ?? 0,
     checklist_total: checklist.length,
     checklist_done: checklist.filter((c) => c.is_done).length,
+    time_logged_minutes: (raw.time ?? []).reduce((n, t) => n + (t.minutes || 0), 0),
   };
 }
 
@@ -193,4 +206,52 @@ export async function getFolders(): Promise<Folder[]> {
     .order("position", { ascending: true })
     .order("name", { ascending: true });
   return (data as Folder[]) ?? [];
+}
+
+export async function getLabels(): Promise<Label[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("labels")
+    .select("*")
+    .order("name", { ascending: true });
+  return (data as Label[]) ?? [];
+}
+
+export async function getTimeEntries(taskId: string): Promise<TimeEntry[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("time_entries")
+    .select("*, user:profiles(*)")
+    .eq("task_id", taskId)
+    .order("spent_on", { ascending: false })
+    .order("created_at", { ascending: false });
+  return (data as TimeEntry[]) ?? [];
+}
+
+/** Activity feed. Pass a taskId for one task's timeline, or omit for the global feed. */
+export async function getActivity(
+  taskId?: string,
+  limit = 50,
+): Promise<ActivityEntry[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("activity")
+    .select("*, actor:actor_id(*), task:task_id(id, title)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (taskId) query = query.eq("task_id", taskId);
+  const { data } = await query;
+  return (data as ActivityEntry[]) ?? [];
+}
+
+export async function getTemplates(): Promise<TaskTemplate[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("task_templates")
+    .select("*, items:template_checklist_items(*)")
+    .order("name", { ascending: true });
+  return ((data as TaskTemplate[]) ?? []).map((t) => ({
+    ...t,
+    items: (t.items ?? []).sort((a, b) => a.position - b.position),
+  }));
 }

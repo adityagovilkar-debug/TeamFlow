@@ -1,15 +1,17 @@
 import { getCurrentProfile } from "@/lib/auth";
 import {
   getFolders,
+  getLabels,
   getProfiles,
   getStatuses,
   getTasks,
   getTeams,
+  getTemplates,
 } from "@/lib/data";
 import { TasksView } from "@/components/tasks/tasks-view";
 
 export default async function TasksPage() {
-  const [profile, tasks, statuses, teams, profiles, folders] =
+  const [profile, tasks, statuses, teams, profiles, folders, labels, templates] =
     await Promise.all([
       getCurrentProfile(),
       getTasks({ includeArchived: true }),
@@ -17,6 +19,8 @@ export default async function TasksPage() {
       getTeams(),
       getProfiles(),
       getFolders(),
+      getLabels(),
+      getTemplates(),
     ]);
 
   return (
@@ -28,6 +32,8 @@ export default async function TasksPage() {
       teams={teams}
       profiles={profiles}
       folders={folders}
+      labels={labels}
+      templates={templates}
     />
   );
 }
