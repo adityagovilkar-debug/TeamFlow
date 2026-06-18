@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Class-based dark mode (we toggle `.dark` on <html>). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ---------- Design tokens ---------- */
 :root {
   --background: #f6f7fb;
@@ -36,6 +39,36 @@
   --priority-urgent: #ef4444;
 
   --radius: 0.75rem;
+}
+
+.dark {
+  --background: #0b1020;
+  --foreground: #e6e9f2;
+
+  --card: #131a2b;
+  --card-foreground: #e6e9f2;
+
+  --muted: #1b2335;
+  --muted-foreground: #97a3ba;
+
+  --border: #273149;
+  --input: #2a3550;
+  --ring: #818cf8;
+
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+
+  --secondary: #1b2335;
+  --secondary-foreground: #e6e9f2;
+
+  --accent: #312e81;
+  --accent-foreground: #c7d2fe;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --success: #10b981;
+  --warning: #f59e0b;
 }
 
 @theme inline {
@@ -114,6 +147,14 @@ body {
 }
 *::-webkit-scrollbar-thumb:hover {
   background: #b3bccd;
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: #38445f;
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: #475270;
   background-clip: padding-box;
 }
 

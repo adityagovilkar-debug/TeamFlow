@@ -192,21 +192,21 @@ export function DashboardView({
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byAssignee} margin={{ left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef1f7" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
                   <XAxis
                     dataKey="short"
-                    tick={{ fontSize: 12, fill: "#647088" }}
+                    tick={{ fontSize: 12, fill: "#94a3b8" }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 12, fill: "#647088" }}
+                    tick={{ fontSize: 12, fill: "#94a3b8" }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <Tooltip
-                    cursor={{ fill: "#eef1f7" }}
+                    cursor={{ fill: "rgba(148,163,184,0.18)" }}
                     labelFormatter={(_, p) => p?.[0]?.payload?.name ?? ""}
                   />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#6366f1" />
@@ -225,20 +225,20 @@ export function DashboardView({
           <CardContent>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={byPriority} margin={{ left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef1f7" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" vertical={false} />
                 <XAxis
                   dataKey="name"
-                  tick={{ fontSize: 12, fill: "#647088" }}
+                  tick={{ fontSize: 12, fill: "#94a3b8" }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
                   allowDecimals={false}
-                  tick={{ fontSize: 12, fill: "#647088" }}
+                  tick={{ fontSize: 12, fill: "#94a3b8" }}
                   axisLine={false}
                   tickLine={false}
                 />
-                <Tooltip cursor={{ fill: "#eef1f7" }} />
+                <Tooltip cursor={{ fill: "rgba(148,163,184,0.18)" }} />
                 <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                   {byPriority.map((d, i) => (
                     <Cell key={i} fill={d.color} />
@@ -261,7 +261,7 @@ export function DashboardView({
                   cy="60"
                   r="52"
                   fill="none"
-                  stroke="#eef1f7"
+                  stroke="rgba(148,163,184,0.18)"
                   strokeWidth="12"
                 />
                 <circle

@@ -2,11 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Bell, MessageSquare, Repeat, UserPlus, TriangleAlert } from "lucide-react";
+import { Mail, Bell, MessageSquare, Repeat, UserPlus, TriangleAlert, Moon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 import { setEmailNotifications } from "@/lib/actions";
 import { ROLE_LABELS, type Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -65,6 +66,32 @@ export function SettingsView({
             <Badge className="ml-auto bg-muted text-muted-foreground border-border">
               {ROLE_LABELS[profile.role]}
             </Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Appearance */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Moon className="size-4" />
+            Appearance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
+            <div className="flex items-start gap-3">
+              <span className="flex size-9 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                <Moon className="size-5" />
+              </span>
+              <div>
+                <p className="font-medium">Dark mode</p>
+                <p className="text-sm text-muted-foreground">
+                  Switch between light and dark themes.
+                </p>
+              </div>
+            </div>
+            <ThemeToggle variant="switch" />
           </div>
         </CardContent>
       </Card>

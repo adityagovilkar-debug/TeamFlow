@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS, isAdmin, type Profile } from "@/lib/types";
 import { APP_NAME, ORG_NAME } from "@/lib/brand";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -140,6 +141,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
                 {ROLE_LABELS[profile.role]}
               </Badge>
             </div>
+            <ThemeToggle />
             <button
               onClick={signOut}
               className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-destructive cursor-pointer"
