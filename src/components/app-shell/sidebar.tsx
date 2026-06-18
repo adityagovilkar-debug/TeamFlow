@@ -6,9 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   ListChecks,
+  ListTodo,
   KanbanSquare,
   CalendarDays,
   ChartGantt,
+  Gauge,
+  History,
   Shield,
   Settings,
   CheckSquare,
@@ -26,10 +29,13 @@ import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/my-work", label: "My Work", icon: ListTodo },
   { href: "/tasks", label: "Tasks", icon: ListChecks },
   { href: "/board", label: "Board", icon: KanbanSquare },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/timeline", label: "Timeline", icon: ChartGantt },
+  { href: "/workload", label: "Workload", icon: Gauge },
+  { href: "/activity", label: "Activity", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

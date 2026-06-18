@@ -6,6 +6,8 @@ import {
   Users,
   Boxes,
   Tags,
+  Tag,
+  LayoutTemplate,
   Plus,
   Pencil,
   Trash2,
@@ -28,28 +30,37 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/
 import { Popover, MenuItem } from "@/components/ui/popover";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import {
+  createLabel,
   createStatus,
   createTeam,
+  createTemplate,
+  deleteLabel,
   deleteStatus,
   deleteTeam,
+  deleteTemplate,
   deleteUser,
   setUserPassword,
   setUserRole,
+  updateLabel,
   updateStatus,
   updateTeam,
 } from "@/lib/actions";
 import { useRealtime } from "@/lib/use-realtime";
 import { cn } from "@/lib/utils";
 import {
+  PRIORITIES,
   ROLE_LABELS,
+  type Label as LabelType,
+  type Priority,
   type Profile,
   type Role,
   type Status,
   type StatusCategory,
+  type TaskTemplate,
   type Team,
 } from "@/lib/types";
 
-type Tab = "members" | "teams" | "statuses";
+type Tab = "members" | "teams" | "statuses" | "labels" | "templates";
 
 const SWATCHES = [
   "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#ef4444",
@@ -61,21 +72,27 @@ export function AdminView({
   profiles,
   teams,
   statuses,
+  labels,
+  templates,
   userMgmtEnabled,
 }: {
   me: Profile;
   profiles: Profile[];
   teams: Team[];
   statuses: Status[];
+  labels: LabelType[];
+  templates: TaskTemplate[];
   userMgmtEnabled: boolean;
 }) {
-  useRealtime(["profiles", "teams", "statuses"]);
+  useRealtime(["profiles", "teams", "statuses", "labels", "task_templates"]);
   const [tab, setTab] = React.useState<Tab>("members");
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "members", label: "Members", icon: Users },
     { id: "teams", label: "Teams / Products", icon: Boxes },
     { id: "statuses", label: "Statuses", icon: Tags },
+    { id: "labels", label: "Labels", icon: Tag },
+    { id: "templates", label: "Templates", icon: LayoutTemplate },
   ];
 
   return (
@@ -112,7 +129,357 @@ export function AdminView({
       )}
       {tab === "teams" && <Teams teams={teams} />}
       {tab === "statuses" && <Statuses statuses={statuses} />}
+      {tab === "labels" && <Labels labels={labels} />}
+      {tab === "templates" && <Templates templates={templates} teams={teams} />}
     </div>
+  );
+}
+
+/* ---------------- Labels ---------------- */
+function Labels({ labels }: { labels: LabelType[] }) {
+  const router = useRouter();
+  const [editing, setEditing] = React.useState<LabelType | null>(null);
+  const [creating, setCreating] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<LabelType | null>(null);
+
+  return (
+    <div>
+      <div className="mb-3 flex justify-end">
+        <Button onClick={() => setCreating(true)}>
+          <Plus className="size-4" />
+          New label
+        </Button>
+      </div>
+      <Card className="divide-y divide-border">
+        {labels.length === 0 && (
+          <p className="p-4 text-sm text-muted-foreground">No labels yet.</p>
+        )}
+        {labels.map((l) => (
+          <div key={l.id} className="flex items-center gap-3 p-4">
+            <span
+              className="rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
+              style={{ backgroundColor: l.color }}
+            >
+              {l.name}
+            </span>
+            <span className="flex-1" />
+            <Button variant="ghost" size="icon-sm" onClick={() => setEditing(l)}>
+              <Pencil className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(l)}>
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </div>
+        ))}
+      </Card>
+
+      <LabelDialog
+        open={creating || Boolean(editing)}
+        label={editing}
+        onClose={() => {
+          setCreating(false);
+          setEditing(null);
+        }}
+      />
+      <ConfirmDelete
+        open={Boolean(deleting)}
+        onClose={() => setDeleting(null)}
+        title="Delete label"
+        description={`Delete "${deleting?.name}"? It's removed from any tasks using it.`}
+        onConfirm={async () => {
+          if (deleting) await deleteLabel(deleting.id);
+          setDeleting(null);
+          router.refresh();
+        }}
+      />
+    </div>
+  );
+}
+
+function LabelDialog({
+  open,
+  label,
+  onClose,
+}: {
+  open: boolean;
+  label: LabelType | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [name, setName] = React.useState("");
+  const [color, setColor] = React.useState(SWATCHES[0]);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setName(label?.name ?? "");
+    setColor(label?.color ?? SWATCHES[0]);
+  }, [open, label]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const input = { name: name.trim(), color };
+    if (label) await updateLabel(label.id, input);
+    else await createLabel(input);
+    setSaving(false);
+    onClose();
+    router.refresh();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogHeader title={label ? "Edit label" : "New label"} />
+      <form onSubmit={save}>
+        <DialogBody className="space-y-4">
+          <div>
+            <Label htmlFor="lname">Name</Label>
+            <Input
+              id="lname"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Social, Blog, Urgent-client"
+              autoFocus
+              required
+            />
+          </div>
+          <ColorPicker value={color} onChange={setColor} />
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || !name.trim()}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
+  );
+}
+
+/* ---------------- Templates ---------------- */
+function Templates({
+  templates,
+  teams,
+}: {
+  templates: TaskTemplate[];
+  teams: Team[];
+}) {
+  const router = useRouter();
+  const [creating, setCreating] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<TaskTemplate | null>(null);
+
+  return (
+    <div>
+      <div className="mb-3 flex justify-end">
+        <Button onClick={() => setCreating(true)}>
+          <Plus className="size-4" />
+          New template
+        </Button>
+      </div>
+      <Card className="divide-y divide-border">
+        {templates.length === 0 && (
+          <p className="p-4 text-sm text-muted-foreground">
+            No templates yet. Create one to spin up common tasks (e.g. a monthly
+            client report) in one click.
+          </p>
+        )}
+        {templates.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 p-4">
+            <LayoutTemplate className="size-4 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">{t.name}</p>
+              <p className="truncate text-sm text-muted-foreground">
+                {t.title}
+                {t.items && t.items.length > 0
+                  ? ` · ${t.items.length} checklist item${t.items.length === 1 ? "" : "s"}`
+                  : ""}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(t)}>
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </div>
+        ))}
+      </Card>
+
+      <TemplateDialog
+        open={creating}
+        teams={teams}
+        onClose={() => setCreating(false)}
+      />
+      <ConfirmDelete
+        open={Boolean(deleting)}
+        onClose={() => setDeleting(null)}
+        title="Delete template"
+        description={`Delete "${deleting?.name}"? Existing tasks created from it are unaffected.`}
+        onConfirm={async () => {
+          if (deleting) await deleteTemplate(deleting.id);
+          setDeleting(null);
+          router.refresh();
+        }}
+      />
+    </div>
+  );
+}
+
+function TemplateDialog({
+  open,
+  teams,
+  onClose,
+}: {
+  open: boolean;
+  teams: Team[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [name, setName] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [priority, setPriority] = React.useState<Priority>("medium");
+  const [teamId, setTeamId] = React.useState("");
+  const [estimateHours, setEstimateHours] = React.useState("");
+  const [itemsText, setItemsText] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setName("");
+    setTitle("");
+    setDescription("");
+    setPriority("medium");
+    setTeamId("");
+    setEstimateHours("");
+    setItemsText("");
+  }, [open]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    await createTemplate({
+      name: name.trim(),
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      team_id: teamId || null,
+      estimate_minutes: estimateHours
+        ? Math.round(parseFloat(estimateHours) * 60)
+        : null,
+      items: itemsText
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    setSaving(false);
+    onClose();
+    router.refresh();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} className="max-w-lg">
+      <DialogHeader
+        title="New template"
+        description="A reusable task. Checklist items: one per line."
+      />
+      <form onSubmit={save}>
+        <DialogBody className="space-y-4">
+          <div>
+            <Label htmlFor="tpl-name">Template name</Label>
+            <Input
+              id="tpl-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Monthly client report"
+              autoFocus
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="tpl-title">Task title</Label>
+            <Input
+              id="tpl-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. {Client} — monthly report"
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="tpl-desc">Description</Label>
+            <Textarea
+              id="tpl-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional"
+              className="min-h-16"
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="tpl-priority">Priority</Label>
+              <Select
+                id="tpl-priority"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as Priority)}
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="tpl-team">Team</Label>
+              <Select
+                id="tpl-team"
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+              >
+                <option value="">None</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="tpl-est">Estimate (h)</Label>
+              <Input
+                id="tpl-est"
+                type="number"
+                min="0"
+                step="0.25"
+                value={estimateHours}
+                onChange={(e) => setEstimateHours(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="tpl-items">Checklist items (one per line)</Label>
+            <Textarea
+              id="tpl-items"
+              value={itemsText}
+              onChange={(e) => setItemsText(e.target.value)}
+              placeholder={"Pull analytics\nDraft summary\nSend for review"}
+              className="min-h-24"
+            />
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || !name.trim() || !title.trim()}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Create template
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
 

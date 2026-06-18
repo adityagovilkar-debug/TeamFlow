@@ -22,6 +22,7 @@ import {
   FolderPlus,
   Folders,
   Loader2,
+  LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -697,6 +698,13 @@ function FolderPanel({
                 <span className="flex-1 truncate">{f.name}</span>
                 <span className="text-xs">{counts(f.id)}</span>
               </button>
+              <Link
+                href={`/folders/${f.id}`}
+                className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                title="Open folder dashboard"
+              >
+                <LayoutDashboard className="size-3.5" />
+              </Link>
               {writable && (
                 <Popover
                   align="end"
