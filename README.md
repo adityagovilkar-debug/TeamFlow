@@ -27,9 +27,23 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
   - **User** — create/edit any task, comment, manage watchers, manage folders.
   - **Contributor** — can edit, comment, and check off items only on tasks **assigned to them**; views everything else.
   - **Viewer** — read-only.
+- **Labels** — colored tags on tasks (manage in Admin), shown on the list/board and
+  filterable.
+- **Time tracking** — a per-task estimate plus logged time entries, rolled up by
+  person (Workload) and client (folder dashboard).
+- **Approvals** — request approval on a task; admins/users approve or request changes.
+- **@mentions** — mention a teammate in a comment to notify them.
+- **Activity log** — a per-task timeline and a global **Activity** feed.
+- **Task templates & recurring tasks** — spin up common tasks (with a checklist) from
+  a template; mark a recurring task done to auto-create the next occurrence.
+- **Dark mode** — toggle in the sidebar or Settings; remembers your choice.
 - **Board** — drag-and-drop Kanban grouped by status.
+- **My Work** — your tasks grouped by urgency (overdue / today / this week / later).
+- **Workload** — open tasks and hours per person, with a status breakdown.
 - **Timeline** — a Gantt-style view of tasks as bars across their start → due dates,
   color-coded by priority, with overdue highlighting and a team filter.
+- **Client dashboards** — a rollup page per folder (open/overdue/done, hours, recent
+  activity).
 - **Dashboard** — totals, tasks by status / assignee / priority, overdue & due-soon,
   completion rate, filterable by team.
 - **Calendar** — month view of tasks on their due dates, color-coded by priority,
@@ -93,8 +107,13 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 > - `06_timeline_start_date.sql` — task start date (Timeline)
 > - `07_folders.sql` — folder tree
 > - `08_archive.sql` — task archiving
+> - `09_labels.sql` — colored labels
+> - `10_approvals.sql` — task approval workflow
+> - `11_time_tracking.sql` — estimates + time entries
+> - `12_activity_log.sql` — activity feed
+> - `13_templates_recurrence.sql` — task templates + recurrence
 >
-> Migrations **04–08 can be pasted and run together** in one query (none have the
+> Migrations **04–13 can be pasted and run together** in one query (none have the
 > enum-in-transaction caveat). The app expects these tables/columns, so run them
 > before using the new build.
 
@@ -126,6 +145,24 @@ in the Pipeline to reorder subtasks.
 - **Timeline** — the **Timeline** tab shows a Gantt of tasks as bars spanning their
   **start date → due date** (start falls back to the created date). Set a start date
   in the task dialog. Color = priority; overdue tasks get a red outline.
+
+## Labels, time, approvals, mentions, templates & views
+
+- **Labels** — create colored labels in **Admin → Labels**, tag tasks in the task
+  dialog, and filter by label on the Tasks page.
+- **Time tracking** — set an **Estimate (hours)** in the task dialog and log time in
+  the task's **Time** card. Totals roll up on **Workload** and folder dashboards.
+- **Approvals** — on a task, **Request approval**; an admin/user can **Approve** or
+  **Request changes**. Status shows as a badge on the list and board.
+- **@mentions** — type `@Name` in a comment to notify that teammate.
+- **Activity** — every task has an **Activity** timeline; the **Activity** tab is the
+  team-wide feed.
+- **Templates & recurring** — manage reusable tasks in **Admin → Templates**, then
+  pick one via **Start from template** in the task dialog. Set **Repeat**
+  (daily/weekly/monthly) to auto-create the next occurrence when the task is done.
+- **Dark mode** — toggle via the sun/moon in the sidebar or **Settings → Appearance**.
+- **My Work** — your tasks grouped by urgency. **Workload** — per-person load + hours.
+- **Client dashboard** — open a folder's dashboard from the folder list on Tasks.
 
 ## User management (admin)
 
