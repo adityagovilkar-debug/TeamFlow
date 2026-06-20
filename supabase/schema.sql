@@ -272,6 +272,21 @@ as $$
   );
 $$;
 
+-- Watcher check (touches only task_watchers) so tasks_select needn't re-query
+-- tasks — re-querying would fail on INSERT ... RETURNING (new row not yet visible).
+create or replace function public.is_watcher(tid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.task_watchers w
+    where w.task_id = tid and w.user_id = auth.uid()
+  );
+$$;
+
 -- Keep tasks.updated_at fresh, and stamp completed_at when moved to a done status.
 create or replace function public.touch_task_updated_at()
 returns trigger
@@ -398,9 +413,17 @@ create policy folders_write on public.folders
   using (public.can_write()) with check (public.can_write());
 
 -- tasks: read if visible (honors privacy); admin+user insert/update; only admin delete.
+-- Evaluate the row's own columns directly (no tasks re-query → works on INSERT RETURNING).
 drop policy if exists tasks_select on public.tasks;
 create policy tasks_select on public.tasks
-  for select to authenticated using ( public.can_see_task(id) );
+  for select to authenticated
+  using (
+    not is_private
+    or created_by = auth.uid()
+    or assignee_id = auth.uid()
+    or public.is_watcher(id)
+    or public.is_superadmin()
+  );
 
 drop policy if exists tasks_insert on public.tasks;
 create policy tasks_insert on public.tasks

@@ -45,10 +45,33 @@ as $$
   );
 $$;
 
+-- Watcher check that touches only task_watchers (so tasks_select needn't re-query
+-- tasks — which would fail on INSERT ... RETURNING for a not-yet-visible new row).
+create or replace function public.is_watcher(tid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.task_watchers w
+    where w.task_id = tid and w.user_id = auth.uid()
+  );
+$$;
+
 -- ---------- Rewrite SELECT policies to honor task visibility ----------
+-- tasks_select evaluates the row's own columns directly (no tasks re-query).
 drop policy if exists tasks_select on public.tasks;
 create policy tasks_select on public.tasks
-  for select to authenticated using ( public.can_see_task(id) );
+  for select to authenticated
+  using (
+    not is_private
+    or created_by = auth.uid()
+    or assignee_id = auth.uid()
+    or public.is_watcher(id)
+    or public.is_superadmin()
+  );
 
 drop policy if exists tasks_update on public.tasks;
 create policy tasks_update on public.tasks
