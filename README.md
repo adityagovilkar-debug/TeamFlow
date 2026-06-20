@@ -22,8 +22,13 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 - **Archive** — archive old/finished tasks so they drop out of the active views
   (Tasks / Board / Calendar / Timeline / Dashboard) but stay browsable under
   Tasks → Archived, and can be restored anytime.
+- **Private tasks** — mark a task private so only its **creator, assignee, watchers,
+  and the single super-admin** can see it (enforced in the database, including its
+  comments/checklist/time/activity). Marking an epic private cascades to its subtasks.
 - **Roles** (enforced in the database via Row-Level Security, not just the UI):
-  - **Admin** — full access: delete tasks, manage custom statuses & teams, assign roles, manage users.
+  - **Super-admin** — exactly one (the owner); the only person who can see *every*
+    private task. Otherwise an Admin. Transferable in Admin → Members.
+  - **Admin** — full access: delete tasks, manage custom statuses & teams, assign roles, manage users (but does **not** see others' private tasks).
   - **User** — create/edit any task, comment, manage watchers, manage folders.
   - **Contributor** — can edit, comment, and check off items only on tasks **assigned to them**; views everything else.
   - **Viewer** — read-only.
@@ -112,8 +117,9 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 > - `11_time_tracking.sql` — estimates + time entries
 > - `12_activity_log.sql` — activity feed
 > - `13_templates_recurrence.sql` — task templates + recurrence
+> - `14_private_tasks.sql` — private tasks + single super-admin
 >
-> Migrations **04–13 can be pasted and run together** in one query (none have the
+> Migrations **04–14 can be pasted and run together** in one query (none have the
 > enum-in-transaction caveat). The app expects these tables/columns, so run them
 > before using the new build.
 
@@ -163,6 +169,10 @@ in the Pipeline to reorder subtasks.
 - **Dark mode** — toggle via the sun/moon in the sidebar or **Settings → Appearance**.
 - **My Work** — your tasks grouped by urgency. **Workload** — per-person load + hours.
 - **Client dashboard** — open a folder's dashboard from the folder list on Tasks.
+- **Private tasks** — flip the **Private** switch in the task dialog. Only the
+  creator, assignee, watchers, and the super-admin can see it (and its comments, time,
+  activity). Add someone as a watcher to grant them access. The **super-admin** is set
+  in **Admin → Members** (only the current super-admin can transfer it).
 
 ## User management (admin)
 
