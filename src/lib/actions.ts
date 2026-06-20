@@ -59,6 +59,7 @@ export interface TaskInput {
   folder_id: string | null;
   estimate_minutes: number | null;
   recurrence: Recurrence;
+  is_private: boolean;
   labels: string[];
   watchers: string[];
   parent_id?: string | null;
@@ -159,14 +160,22 @@ export async function createTask(input: TaskInput): Promise<Result> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Subtasks are appended to the end of their epic's pipeline.
+  // Subtasks are appended to the end of their epic's pipeline, and inherit the
+  // epic's privacy (a private epic's subtasks must be private too).
   let position = 0;
+  let isPrivate = input.is_private;
   if (input.parent_id) {
     const { count } = await supabase
       .from("tasks")
       .select("*", { count: "exact", head: true })
       .eq("parent_id", input.parent_id);
     position = count ?? 0;
+    const { data: parent } = await supabase
+      .from("tasks")
+      .select("is_private")
+      .eq("id", input.parent_id)
+      .single();
+    if (parent?.is_private) isPrivate = true;
   }
 
   const { data, error } = await supabase
@@ -183,6 +192,7 @@ export async function createTask(input: TaskInput): Promise<Result> {
       folder_id: input.folder_id,
       estimate_minutes: input.estimate_minutes,
       recurrence: input.recurrence,
+      is_private: isPrivate,
       parent_id: input.parent_id ?? null,
       position,
       created_by: user.id,
@@ -248,7 +258,7 @@ export async function updateTask(
   // Capture prior state to diff for notifications.
   const { data: prior } = await supabase
     .from("tasks")
-    .select("status_id, assignee_id")
+    .select("status_id, assignee_id, is_private")
     .eq("id", id)
     .single();
   const { data: priorWatcherRows } = await supabase
@@ -282,10 +292,24 @@ export async function updateTask(
       folder_id: input.folder_id,
       estimate_minutes: input.estimate_minutes,
       recurrence: input.recurrence,
+      is_private: input.is_private,
     })
     .eq("id", id);
 
   if (error) return { error: error.message };
+
+  // Privacy change cascades to subtasks (so an epic's children match the epic).
+  if (input.is_private !== prior?.is_private) {
+    await supabase
+      .from("tasks")
+      .update({ is_private: input.is_private })
+      .eq("parent_id", id);
+    await logActivity(supabase, {
+      taskId: id,
+      type: "privacy",
+      summary: input.is_private ? "made this task private" : "made this task public",
+    });
+  }
 
   // Reconcile watchers: clear then re-insert.
   await supabase.from("task_watchers").delete().eq("task_id", id);
@@ -1023,6 +1047,42 @@ export async function reorderSubtasks(
   }
 
   revalidatePath(`/tasks/${parentId}`);
+  revalidateTaskViews();
+  return {};
+}
+
+// ---------- Super-admin (single break-glass owner) ----------
+/** Transfer the sole super-admin to another member. Only the current super-admin may. */
+export async function setSuperadmin(userId: string): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("is_superadmin")
+    .eq("id", user.id)
+    .single();
+  if (!me?.is_superadmin)
+    return { error: "Only the current super-admin can transfer this." };
+  if (userId === user.id) return {};
+
+  // Clear the existing holder first (the partial unique index allows only one).
+  const { error: e1 } = await supabase
+    .from("profiles")
+    .update({ is_superadmin: false })
+    .eq("is_superadmin", true);
+  if (e1) return { error: e1.message };
+
+  const { error: e2 } = await supabase
+    .from("profiles")
+    .update({ is_superadmin: true })
+    .eq("id", userId);
+  if (e2) return { error: e2.message };
+
+  revalidatePath("/admin");
   revalidateTaskViews();
   return {};
 }

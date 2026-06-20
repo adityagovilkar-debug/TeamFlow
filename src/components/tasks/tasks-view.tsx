@@ -424,6 +424,12 @@ export function TasksView({
                               {t.approval_status === "pending" && (
                                 <span className="font-medium text-warning">⏳ Approval</span>
                               )}
+                              {t.is_private && (
+                                <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+                                  <Lock className="size-3" />
+                                  Private
+                                </span>
+                              )}
                             </div>
                             {t.labels.length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">

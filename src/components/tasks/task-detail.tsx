@@ -274,6 +274,12 @@ export function TaskDetail({
                 Archived
               </span>
             )}
+            {task.is_private && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <Lock className="size-3" />
+                Private
+              </span>
+            )}
             {task.recurrence && task.recurrence !== "none" && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium capitalize text-muted-foreground">
                 <History className="size-3" />

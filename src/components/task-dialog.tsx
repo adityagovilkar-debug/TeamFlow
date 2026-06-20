@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
 import {
   Dialog,
   DialogBody,
@@ -73,6 +73,7 @@ export function TaskDialog({
   const [folderId, setFolderId] = React.useState<string>("");
   const [estimateHours, setEstimateHours] = React.useState<string>("");
   const [recurrence, setRecurrence] = React.useState<Recurrence>("none");
+  const [isPrivate, setIsPrivate] = React.useState(false);
   const [labelIds, setLabelIds] = React.useState<string[]>([]);
   const [templateId, setTemplateId] = React.useState<string>("");
   const [watchers, setWatchers] = React.useState<string[]>([]);
@@ -102,6 +103,7 @@ export function TaskDialog({
         task.estimate_minutes != null ? String(task.estimate_minutes / 60) : "",
       );
       setRecurrence(task.recurrence ?? "none");
+      setIsPrivate(task.is_private);
       setLabelIds(task.labels.map((l) => l.id));
       setTemplateId("");
       setWatchers(task.watchers.map((w) => w.id));
@@ -117,6 +119,7 @@ export function TaskDialog({
       setFolderId(defaultFolderId ?? "");
       setEstimateHours("");
       setRecurrence("none");
+      setIsPrivate(false);
       setLabelIds([]);
       setTemplateId("");
       setWatchers([]);
@@ -163,6 +166,7 @@ export function TaskDialog({
         ? Math.round(parseFloat(estimateHours) * 60)
         : null,
       recurrence,
+      is_private: isPrivate,
       labels: labelIds,
       watchers,
       parent_id: parentId ?? null,
@@ -364,6 +368,39 @@ export function TaskDialog({
                 onChange={setWatchers}
               />
             </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+            <div className="flex items-start gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                <Lock className="size-4" />
+              </span>
+              <div>
+                <p className="text-sm font-medium">Private task</p>
+                <p className="text-xs text-muted-foreground">
+                  {isSubtask
+                    ? "Subtasks of a private epic are private automatically."
+                    : "Only you, the assignee, watchers, and the super-admin can see this."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isPrivate}
+              onClick={() => setIsPrivate((v) => !v)}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer",
+                isPrivate ? "bg-primary" : "bg-muted-foreground/30",
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block size-5 transform rounded-full bg-white shadow transition-transform",
+                  isPrivate ? "translate-x-[22px]" : "translate-x-[2px]",
+                )}
+              />
+            </button>
           </div>
 
           {labels.length > 0 && (

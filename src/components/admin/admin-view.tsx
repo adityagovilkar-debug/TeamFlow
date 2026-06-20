@@ -18,6 +18,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Crown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -39,6 +40,7 @@ import {
   deleteTeam,
   deleteTemplate,
   deleteUser,
+  setSuperadmin,
   setUserPassword,
   setUserRole,
   updateLabel,
@@ -497,6 +499,7 @@ function Members({
   const [savingId, setSavingId] = React.useState<string | null>(null);
   const [resetting, setResetting] = React.useState<Profile | null>(null);
   const [deleting, setDeleting] = React.useState<Profile | null>(null);
+  const [promoting, setPromoting] = React.useState<Profile | null>(null);
 
   async function changeRole(id: string, role: Role) {
     setSavingId(id);
@@ -533,6 +536,12 @@ function Members({
                   {isSelf && (
                     <span className="ml-2 text-xs text-muted-foreground">
                       (you)
+                    </span>
+                  )}
+                  {p.is_superadmin && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                      <Crown className="size-3" />
+                      Super-admin
                     </span>
                   )}
                 </p>
@@ -580,6 +589,16 @@ function Members({
                       >
                         <KeyRound /> Reset password
                       </MenuItem>
+                      {me.is_superadmin && !p.is_superadmin && (
+                        <MenuItem
+                          onClick={() => {
+                            close();
+                            setPromoting(p);
+                          }}
+                        >
+                          <Crown /> Make super-admin
+                        </MenuItem>
+                      )}
                       {!isSelf && (
                         <MenuItem
                           destructive
@@ -606,6 +625,22 @@ function Members({
         </p>
       </Card>
 
+      <ConfirmDelete
+        open={Boolean(promoting)}
+        onClose={() => setPromoting(null)}
+        title="Make super-admin"
+        description={`Transfer super-admin to ${
+          promoting?.full_name || promoting?.email
+        }? They will be able to see all private tasks, and you will lose that ability. Only one super-admin can exist.`}
+        confirmLabel="Make super-admin"
+        onConfirm={async () => {
+          if (!promoting) return;
+          const res = await setSuperadmin(promoting.id);
+          setPromoting(null);
+          if (res.error) alert(res.error);
+          router.refresh();
+        }}
+      />
       <ResetPasswordDialog
         user={resetting}
         onClose={() => setResetting(null)}

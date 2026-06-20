@@ -15,6 +15,7 @@ export interface Profile {
   role: Role;
   avatar_url: string | null;
   email_notifications: boolean;
+  is_superadmin: boolean;
   created_at: string;
 }
 
@@ -89,6 +90,7 @@ export interface Task {
   folder_id: string | null;
   position: number;
   archived_at: string | null;
+  is_private: boolean;
   estimate_minutes: number | null;
   recurrence: Recurrence;
   approval_status: ApprovalStatus;

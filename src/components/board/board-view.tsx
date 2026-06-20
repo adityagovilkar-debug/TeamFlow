@@ -410,6 +410,12 @@ function CardInner({
             ⏳ Approval
           </span>
         )}
+        {task.is_private && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+            <Lock className="size-3" />
+            Private
+          </span>
+        )}
       </div>
       {task.labels.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">

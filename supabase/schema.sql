@@ -27,8 +27,13 @@ create table if not exists public.profiles (
   role        user_role not null default 'viewer',
   avatar_url  text,
   email_notifications boolean not null default true,
+  is_superadmin boolean not null default false,
   created_at  timestamptz not null default now()
 );
+
+-- Only one super-admin can ever exist (sees private tasks; break-glass owner).
+create unique index if not exists uniq_superadmin
+  on public.profiles (is_superadmin) where is_superadmin;
 
 create table if not exists public.teams (
   id          uuid primary key default gen_random_uuid(),
@@ -72,6 +77,7 @@ create table if not exists public.tasks (
   folder_id    uuid references public.folders (id) on delete set null,
   position     int not null default 0,
   archived_at  timestamptz,
+  is_private   boolean not null default false,
   estimate_minutes int,
   recurrence   text not null default 'none' check (recurrence in ('none','daily','weekly','monthly')),
   approval_status text not null default 'none' check (approval_status in ('none','pending','approved','changes_requested')),
@@ -166,6 +172,8 @@ create table if not exists public.template_checklist_items (
 alter table public.tasks    add column if not exists start_date  date;
 alter table public.tasks    add column if not exists folder_id   uuid references public.folders (id) on delete set null;
 alter table public.tasks    add column if not exists archived_at timestamptz;
+alter table public.tasks    add column if not exists is_private boolean not null default false;
+alter table public.profiles add column if not exists is_superadmin boolean not null default false;
 alter table public.tasks    add column if not exists estimate_minutes int;
 alter table public.tasks    add column if not exists recurrence text not null default 'none';
 alter table public.tasks    add column if not exists approval_status text not null default 'none';
@@ -229,6 +237,41 @@ as $$
   select coalesce(public.current_role() in ('admin', 'user'), false);
 $$;
 
+-- The single super-admin can see private tasks (break-glass owner).
+create or replace function public.is_superadmin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce((select is_superadmin from public.profiles where id = auth.uid()), false);
+$$;
+
+-- Whether the current user may see a task (honors the private-task rule).
+-- SECURITY DEFINER so the cross-table reads bypass RLS (no policy recursion).
+create or replace function public.can_see_task(tid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.tasks t
+    where t.id = tid and (
+      not t.is_private
+      or t.created_by = auth.uid()
+      or t.assignee_id = auth.uid()
+      or exists (
+        select 1 from public.task_watchers w
+        where w.task_id = t.id and w.user_id = auth.uid()
+      )
+      or public.is_superadmin()
+    )
+  );
+$$;
+
 -- Keep tasks.updated_at fresh, and stamp completed_at when moved to a done status.
 create or replace function public.touch_task_updated_at()
 returns trigger
@@ -271,12 +314,14 @@ begin
     assigned_role := 'viewer';
   end if;
 
-  insert into public.profiles (id, email, full_name, role)
+  insert into public.profiles (id, email, full_name, role, is_superadmin)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
-    assigned_role
+    assigned_role,
+    -- The very first user (the admin) is also the sole super-admin.
+    assigned_role = 'admin'
   )
   on conflict (id) do nothing;
 
@@ -352,10 +397,10 @@ create policy folders_write on public.folders
   for all to authenticated
   using (public.can_write()) with check (public.can_write());
 
--- tasks: all read; admin+user insert/update; only admin delete.
+-- tasks: read if visible (honors privacy); admin+user insert/update; only admin delete.
 drop policy if exists tasks_select on public.tasks;
 create policy tasks_select on public.tasks
-  for select to authenticated using (true);
+  for select to authenticated using ( public.can_see_task(id) );
 
 drop policy if exists tasks_insert on public.tasks;
 create policy tasks_insert on public.tasks
@@ -365,8 +410,11 @@ drop policy if exists tasks_update on public.tasks;
 create policy tasks_update on public.tasks
   for update to authenticated
   using (
-    public.can_write()
-    or (public.current_role() = 'contributor' and assignee_id = auth.uid())
+    public.can_see_task(id)
+    and (
+      public.can_write()
+      or (public.current_role() = 'contributor' and assignee_id = auth.uid())
+    )
   )
   with check (
     public.can_write()
@@ -375,12 +423,12 @@ create policy tasks_update on public.tasks
 
 drop policy if exists tasks_delete on public.tasks;
 create policy tasks_delete on public.tasks
-  for delete to authenticated using (public.is_admin());
+  for delete to authenticated using ( public.is_admin() and public.can_see_task(id) );
 
--- watchers: all read; admin+user manage.
+-- watchers: read if the task is visible; admin+user manage.
 drop policy if exists watchers_select on public.task_watchers;
 create policy watchers_select on public.task_watchers
-  for select to authenticated using (true);
+  for select to authenticated using ( public.can_see_task(task_id) );
 
 drop policy if exists watchers_write on public.task_watchers;
 create policy watchers_write on public.task_watchers
@@ -406,10 +454,10 @@ create policy watchers_write on public.task_watchers
     )
   );
 
--- comments: all read; admin+user create; authors edit/delete own, admins any.
+-- comments: read if the task is visible; admin+user create; authors edit/delete own, admins any.
 drop policy if exists comments_select on public.comments;
 create policy comments_select on public.comments
-  for select to authenticated using (true);
+  for select to authenticated using ( public.can_see_task(task_id) );
 
 drop policy if exists comments_insert on public.comments;
 create policy comments_insert on public.comments
@@ -439,10 +487,10 @@ create policy comments_delete_own on public.comments
   for delete to authenticated
   using (author_id = auth.uid() or public.is_admin());
 
--- checklist items: all read; admin+user write; contributor on assigned tasks only.
+-- checklist items: read if the task is visible; admin+user write; contributor on assigned tasks only.
 drop policy if exists checklist_select on public.checklist_items;
 create policy checklist_select on public.checklist_items
-  for select to authenticated using (true);
+  for select to authenticated using ( public.can_see_task(task_id) );
 
 drop policy if exists checklist_write on public.checklist_items;
 create policy checklist_write on public.checklist_items
@@ -480,7 +528,7 @@ create policy labels_write on public.labels
 -- task_labels: all read; admin+user, or contributor on their assigned task.
 drop policy if exists task_labels_select on public.task_labels;
 create policy task_labels_select on public.task_labels
-  for select to authenticated using (true);
+  for select to authenticated using ( public.can_see_task(task_id) );
 drop policy if exists task_labels_write on public.task_labels;
 create policy task_labels_write on public.task_labels
   for all to authenticated
@@ -502,7 +550,7 @@ create policy task_labels_write on public.task_labels
 -- time_entries: all read; log on tasks you can edit; edit/delete your own (admins any).
 drop policy if exists time_entries_select on public.time_entries;
 create policy time_entries_select on public.time_entries
-  for select to authenticated using (true);
+  for select to authenticated using ( public.can_see_task(task_id) );
 drop policy if exists time_entries_insert on public.time_entries;
 create policy time_entries_insert on public.time_entries
   for insert to authenticated
@@ -526,10 +574,11 @@ create policy time_entries_delete on public.time_entries
   for delete to authenticated
   using (user_id = auth.uid() or public.is_admin());
 
--- activity: all read; insert as yourself.
+-- activity: read if its task is visible (task-independent rows are public); insert as yourself.
 drop policy if exists activity_select on public.activity;
 create policy activity_select on public.activity
-  for select to authenticated using (true);
+  for select to authenticated
+  using ( task_id is null or public.can_see_task(task_id) );
 drop policy if exists activity_insert on public.activity;
 create policy activity_insert on public.activity
   for insert to authenticated with check (actor_id = auth.uid());
