@@ -10,18 +10,16 @@ export function cn(...inputs: ClassValue[]) {
  * swatches (deeper, more varied hues) so people are easy to tell apart.
  */
 export const AVATAR_PALETTE = [
-  "#e11d48", // rose
+  "#dc2626", // red
   "#ea580c", // orange
   "#ca8a04", // gold
-  "#65a30d", // lime
-  "#059669", // emerald
+  "#16a34a", // green
   "#0d9488", // teal
-  "#0891b2", // cyan
-  "#2563eb", // blue
-  "#7c3aed", // violet
+  "#0ea5e9", // sky
+  "#4f46e5", // indigo
   "#9333ea", // purple
-  "#c026d3", // fuchsia
   "#db2777", // pink
+  "#65a30d", // olive
 ];
 
 /** Deterministic color from a string, drawn from AVATAR_PALETTE. */
