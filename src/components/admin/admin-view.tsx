@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Crown,
   UserPlus,
+  UserCheck,
   Ban,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { ConfirmDelete } from "@/components/confirm-delete";
 import {
   createLabel,
   createMember,
+  grantAccess,
   createStatus,
   createTeam,
   createTemplate,
@@ -504,6 +506,7 @@ function Members({
   const [deleting, setDeleting] = React.useState<Profile | null>(null);
   const [promoting, setPromoting] = React.useState<Profile | null>(null);
   const [addingMember, setAddingMember] = React.useState(false);
+  const [granting, setGranting] = React.useState<Profile | null>(null);
 
   async function changeRole(id: string, role: Role) {
     setSavingId(id);
@@ -616,6 +619,16 @@ function Members({
                           <KeyRound /> Reset password
                         </MenuItem>
                       )}
+                      {me.is_superadmin && p.is_placeholder && (
+                        <MenuItem
+                          onClick={() => {
+                            close();
+                            setGranting(p);
+                          }}
+                        >
+                          <UserCheck /> Grant access
+                        </MenuItem>
+                      )}
                       {me.is_superadmin && !p.is_superadmin && !p.is_placeholder && (
                         <MenuItem
                           onClick={() => {
@@ -673,6 +686,7 @@ function Members({
         onClose={() => setAddingMember(false)}
         configured={userMgmtEnabled}
       />
+      <GrantAccessDialog user={granting} onClose={() => setGranting(null)} />
       <ResetPasswordDialog
         user={resetting}
         onClose={() => setResetting(null)}
@@ -928,6 +942,182 @@ function AddMemberDialog({
           </Button>
         </DialogFooter>
       </form>
+    </Dialog>
+  );
+}
+
+function GrantAccessDialog({
+  user,
+  onClose,
+}: {
+  user: Profile | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const NO_LOGIN = "@no-login.teamflow.local";
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [role, setRole] = React.useState<Role>("viewer");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [done, setDone] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    if (user) {
+      // Prefill with their real email if they have one (not the synthetic placeholder).
+      setEmail(user.email && !user.email.endsWith(NO_LOGIN) ? user.email : "");
+      setPassword(generatePassword());
+      setRole("viewer");
+      setError(null);
+      setDone(false);
+      setCopied(false);
+    }
+  }, [user]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    const res = await grantAccess({ userId: user.id, email: email.trim(), password, role });
+    setSaving(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    setDone(true);
+  }
+
+  return (
+    <Dialog open={Boolean(user)} onClose={onClose}>
+      <DialogHeader
+        title="Grant access"
+        description={
+          user
+            ? `Give ${user.full_name || "this member"} a real login. Their existing task assignments stay attached.`
+            : ""
+        }
+      />
+      {done ? (
+        <>
+          <DialogBody>
+            <div className="rounded-lg border border-success/30 bg-success/10 p-4">
+              <p className="text-sm font-medium">Access granted.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Share these credentials securely. They can sign in right away and
+                keep everything already assigned to them.
+              </p>
+              <div className="mt-3 space-y-1 text-sm">
+                <p>
+                  <span className="text-muted-foreground">Email:</span> {email}
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded-md border border-border bg-card px-3 py-2 font-mono text-sm">
+                    {password}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(password);
+                      setCopied(true);
+                    }}
+                    title="Copy password"
+                  >
+                    {copied ? (
+                      <Check className="size-4 text-success" />
+                    ) : (
+                      <Copy className="size-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                onClose();
+                router.refresh();
+              }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </>
+      ) : (
+        <form onSubmit={save}>
+          <DialogBody className="space-y-4">
+            <div>
+              <Label htmlFor="ga-email">Email</Label>
+              <Input
+                id="ga-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="their.email@company.com"
+                required
+                autoFocus
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                A real address they control — they sign in and reset passwords with it.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="ga-role">Role</Label>
+              <Select
+                id="ga-role"
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
+              >
+                {(["viewer", "contributor", "user", "admin"] as Role[]).map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABELS[r]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="ga-pw">Temporary password</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="ga-pw"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={6}
+                  required
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => setPassword(generatePassword())}
+                  title="Generate"
+                >
+                  <RefreshCw className="size-4" />
+                </Button>
+              </div>
+            </div>
+            {error && (
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || !email.trim() || password.length < 6}>
+              {saving && <Loader2 className="size-4 animate-spin" />}
+              Grant access
+            </Button>
+          </DialogFooter>
+        </form>
+      )}
     </Dialog>
   );
 }

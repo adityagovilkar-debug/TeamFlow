@@ -1149,6 +1149,66 @@ export async function createMember(input: {
   return {};
 }
 
+/**
+ * Convert a no-access placeholder into a real login user — on the SAME account, so
+ * all their existing task assignments/watchers/history are preserved. Sets a real
+ * email + password, a role, clears the placeholder flag, and re-enables emails.
+ * Super-admin only.
+ */
+export async function grantAccess(input: {
+  userId: string;
+  email: string;
+  password: string;
+  role: Role;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("is_superadmin")
+    .eq("id", user.id)
+    .single();
+  if (!me?.is_superadmin)
+    return { error: "Only the super-admin can grant access." };
+
+  const email = input.email.trim();
+  if (!email) return { error: "An email is required so they can sign in." };
+  if (input.password.length < 6)
+    return { error: "Password must be at least 6 characters." };
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "User management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const admin = createAdminClient();
+  // Set a real email + password on the existing auth user (same id).
+  const { error: authErr } = await admin.auth.admin.updateUserById(input.userId, {
+    email,
+    password: input.password,
+    email_confirm: true,
+  });
+  if (authErr) return { error: authErr.message };
+
+  const { error: profErr } = await admin
+    .from("profiles")
+    .update({
+      email,
+      role: input.role,
+      is_placeholder: false,
+      email_notifications: true,
+    })
+    .eq("id", input.userId);
+  if (profErr) return { error: profErr.message };
+
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
+
 // ---------- Admin: privileged user management (service role) ----------
 export async function deleteUser(userId: string): Promise<Result> {
   const supabase = await createClient();
