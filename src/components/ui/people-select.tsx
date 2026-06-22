@@ -46,7 +46,7 @@ export function PeopleSelect({
                   toggle(p.id);
                 }}
               >
-                <Avatar name={p.full_name} email={p.email} size={18} />
+                <Avatar name={p.full_name} email={p.email} color={p.color} size={18} />
                 {p.full_name || p.email}
                 <X className="size-3 text-muted-foreground" />
               </span>
@@ -72,7 +72,7 @@ export function PeopleSelect({
                 onClick={() => toggle(p.id)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted cursor-pointer"
               >
-                <Avatar name={p.full_name} email={p.email} size={22} />
+                <Avatar name={p.full_name} email={p.email} color={p.color} size={22} />
                 <span className="flex-1 truncate">
                   {p.full_name || p.email}
                 </span>

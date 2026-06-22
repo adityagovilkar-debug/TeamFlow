@@ -46,6 +46,7 @@ import {
   deleteTemplate,
   deleteUser,
   setSuperadmin,
+  setUserColor,
   setUserPassword,
   setUserRole,
   updateLabel,
@@ -53,7 +54,7 @@ import {
   updateTeam,
 } from "@/lib/actions";
 import { useRealtime } from "@/lib/use-realtime";
-import { cn } from "@/lib/utils";
+import { cn, AVATAR_PALETTE, userColor } from "@/lib/utils";
 import {
   PRIORITIES,
   ROLE_LABELS,
@@ -545,7 +546,7 @@ function Members({
           const isSelf = p.id === me.id;
           return (
             <div key={p.id} className="flex items-center gap-3 p-4">
-              <Avatar name={p.full_name} email={p.email} size={40} />
+              <Avatar name={p.full_name} email={p.email} color={p.color} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {p.full_name || p.email}
@@ -575,6 +576,7 @@ function Members({
                 {savingId === p.id && (
                   <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 )}
+                <MemberColorPicker profile={p} />
                 {p.is_placeholder ? (
                   <span className="w-32 text-center text-sm text-muted-foreground">
                     No access
@@ -1119,6 +1121,62 @@ function GrantAccessDialog({
         </form>
       )}
     </Dialog>
+  );
+}
+
+function MemberColorPicker({ profile }: { profile: Profile }) {
+  const router = useRouter();
+  const current = userColor(profile.email, profile.color);
+
+  async function pick(color: string | null, close: () => void) {
+    close();
+    await setUserColor(profile.id, color);
+    router.refresh();
+  }
+
+  return (
+    <Popover
+      align="end"
+      trigger={
+        <button
+          className="rounded-full p-0.5 ring-1 ring-border hover:ring-foreground/30 cursor-pointer"
+          title="Set color"
+          aria-label="Set color"
+        >
+          <span
+            className="block size-5 rounded-full"
+            style={{ backgroundColor: current }}
+          />
+        </button>
+      }
+    >
+      {(close) => (
+        <div className="p-1">
+          <div className="grid grid-cols-6 gap-1.5 p-1">
+            {AVATAR_PALETTE.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => pick(c, close)}
+                className={cn(
+                  "size-6 rounded-full transition-transform hover:scale-110 cursor-pointer",
+                  profile.color === c && "ring-2 ring-offset-2 ring-foreground ring-offset-card",
+                )}
+                style={{ backgroundColor: c }}
+                aria-label={`Color ${c}`}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => pick(null, close)}
+            className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted cursor-pointer"
+          >
+            Auto (from name)
+          </button>
+        </div>
+      )}
+    </Popover>
   );
 }
 

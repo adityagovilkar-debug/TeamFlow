@@ -1028,6 +1028,26 @@ export async function setUserRole(
   return {};
 }
 
+/** Set (or clear, with null) a member's display color. Admins only. */
+export async function setUserColor(
+  userId: string,
+  color: string | null,
+): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ color })
+    .eq("id", userId);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/dashboard");
+  revalidateTaskViews();
+  return {};
+}
+
 // ---------- Reorder subtasks in an epic's pipeline (admin) ----------
 export async function reorderSubtasks(
   parentId: string,

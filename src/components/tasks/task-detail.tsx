@@ -353,7 +353,7 @@ export function TaskDetail({
 
             {canEdit && (
               <form onSubmit={postComment} className="mb-5 flex gap-3">
-                <Avatar name={me.full_name} email={me.email} size={36} />
+                <Avatar name={me.full_name} email={me.email} color={me.color} size={36} />
                 <div className="flex-1">
                   <Textarea
                     value={body}
@@ -408,6 +408,7 @@ export function TaskDetail({
                   <Avatar
                     name={task.assignee.full_name}
                     email={task.assignee.email}
+                    color={task.assignee.color}
                     size={24}
                   />
                   <span className="text-sm">
@@ -444,7 +445,7 @@ export function TaskDetail({
                       key={w.id}
                       className="inline-flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2 text-xs"
                     >
-                      <Avatar name={w.full_name} email={w.email} size={20} />
+                      <Avatar name={w.full_name} email={w.email} color={w.color} size={20} />
                       {w.full_name || w.email}
                     </span>
                   ))}
@@ -686,6 +687,7 @@ function SubtaskRowContent({
         <Avatar
           name={subtask.assignee.full_name}
           email={subtask.assignee.email}
+          color={subtask.assignee.color}
           size={22}
         />
       )}
@@ -914,6 +916,7 @@ function CommentItem({
       <Avatar
         name={comment.author?.full_name}
         email={comment.author?.email}
+        color={comment.author?.color}
         size={36}
       />
       <div className="flex-1">
@@ -937,6 +940,7 @@ function CommentItem({
                 <Avatar
                   name={r.author?.full_name}
                   email={r.author?.email}
+                  color={r.author?.color}
                   size={28}
                 />
                 <Bubble c={r} me={me} admin={admin} taskId={taskId} people={people} />
@@ -945,7 +949,7 @@ function CommentItem({
 
             {replyOpen && (
               <form onSubmit={sendReply} className="flex gap-3">
-                <Avatar name={me.full_name} email={me.email} size={28} />
+                <Avatar name={me.full_name} email={me.email} color={me.color} size={28} />
                 <div className="flex-1">
                   <Textarea
                     value={reply}

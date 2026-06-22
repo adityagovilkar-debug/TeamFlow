@@ -5,25 +5,40 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Deterministic-ish color from a string (used for avatars). */
+/**
+ * Per-user color palette — deliberately distinct from the app's brand/status
+ * swatches (deeper, more varied hues) so people are easy to tell apart.
+ */
+export const AVATAR_PALETTE = [
+  "#e11d48", // rose
+  "#ea580c", // orange
+  "#ca8a04", // gold
+  "#65a30d", // lime
+  "#059669", // emerald
+  "#0d9488", // teal
+  "#0891b2", // cyan
+  "#2563eb", // blue
+  "#7c3aed", // violet
+  "#9333ea", // purple
+  "#c026d3", // fuchsia
+  "#db2777", // pink
+];
+
+/** Deterministic color from a string, drawn from AVATAR_PALETTE. */
 export function colorFromString(input: string): string {
-  const palette = [
-    "#6366f1",
-    "#8b5cf6",
-    "#ec4899",
-    "#f59e0b",
-    "#10b981",
-    "#06b6d4",
-    "#3b82f6",
-    "#ef4444",
-    "#14b8a6",
-    "#a855f7",
-  ];
   let hash = 0;
   for (let i = 0; i < input.length; i++) {
     hash = input.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return palette[Math.abs(hash) % palette.length];
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+/** A user's display color: their custom color if set, else an auto palette color. */
+export function userColor(
+  seed: string | null | undefined,
+  custom?: string | null,
+): string {
+  return custom?.trim() || colorFromString(seed || "?");
 }
 
 export function initials(name: string | null | undefined, fallback = "?"): string {

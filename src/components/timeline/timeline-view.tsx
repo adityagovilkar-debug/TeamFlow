@@ -175,6 +175,7 @@ export function TimelineView({
                       <Avatar
                         name={task.assignee.full_name}
                         email={task.assignee.email}
+                        color={task.assignee.color}
                         size={20}
                       />
                     )}

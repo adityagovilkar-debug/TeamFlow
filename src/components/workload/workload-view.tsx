@@ -129,6 +129,7 @@ export function WorkloadView({
                     <Avatar
                       name={r.profile.full_name}
                       email={r.profile.email}
+                      color={r.profile.color}
                       size={26}
                     />
                     {r.profile.full_name || r.profile.email}

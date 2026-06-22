@@ -56,7 +56,7 @@ export function SettingsView({
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
-            <Avatar name={profile.full_name} email={profile.email} size={44} />
+            <Avatar name={profile.full_name} email={profile.email} color={profile.color} size={44} />
             <div className="min-w-0">
               <p className="font-medium">{profile.full_name || profile.email}</p>
               <p className="truncate text-sm text-muted-foreground">

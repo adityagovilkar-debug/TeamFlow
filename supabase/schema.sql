@@ -29,6 +29,7 @@ create table if not exists public.profiles (
   email_notifications boolean not null default true,
   is_superadmin boolean not null default false,
   is_placeholder boolean not null default false,
+  color       text,
   created_at  timestamptz not null default now()
 );
 
@@ -176,6 +177,7 @@ alter table public.tasks    add column if not exists archived_at timestamptz;
 alter table public.tasks    add column if not exists is_private boolean not null default false;
 alter table public.profiles add column if not exists is_superadmin boolean not null default false;
 alter table public.profiles add column if not exists is_placeholder boolean not null default false;
+alter table public.profiles add column if not exists color text;
 alter table public.tasks    add column if not exists estimate_minutes int;
 alter table public.tasks    add column if not exists recurrence text not null default 'none';
 alter table public.tasks    add column if not exists approval_status text not null default 'none';

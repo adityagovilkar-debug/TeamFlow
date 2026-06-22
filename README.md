@@ -41,6 +41,8 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 - **Activity log** — a per-task timeline and a global **Activity** feed.
 - **Task templates & recurring tasks** — spin up common tasks (with a checklist) from
   a template; mark a recurring task done to auto-create the next occurrence.
+- **Per-user colors** — each member has a distinct color (auto, or pick a custom one
+  in Admin → Members) shown on their avatar and the dashboard's "by assignee" chart.
 - **Dark mode** — toggle in the sidebar or Settings; remembers your choice.
 - **Board** — drag-and-drop Kanban grouped by status.
 - **My Work** — your tasks grouped by urgency (overdue / today / this week / later).
@@ -120,8 +122,9 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 > - `14_private_tasks.sql` — private tasks + single super-admin
 > - `15_private_select_fix.sql` — fix for the private-task read policy
 > - `16_placeholder_members.sql` — "Add user" (assignable members with no app access)
+> - `17_user_color.sql` — per-user display color
 >
-> Migrations **04–16 can be pasted and run together** in one query (none have the
+> Migrations **04–17 can be pasted and run together** in one query (none have the
 > enum-in-transaction caveat). The app expects these tables/columns, so run them
 > before using the new build.
 

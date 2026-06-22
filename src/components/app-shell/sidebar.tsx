@@ -138,7 +138,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
 
         <div className="border-t border-border p-3">
           <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <Avatar name={profile.full_name} email={profile.email} size={36} />
+            <Avatar name={profile.full_name} email={profile.email} color={profile.color} size={36} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
                 {profile.full_name || profile.email}

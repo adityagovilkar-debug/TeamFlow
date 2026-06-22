@@ -125,6 +125,7 @@ export default async function FolderDashboardPage({
                     <Avatar
                       name={t.assignee.full_name}
                       email={t.assignee.email}
+                      color={t.assignee.color}
                       size={24}
                     />
                   )}

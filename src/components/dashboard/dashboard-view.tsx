@@ -25,7 +25,7 @@ import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRealtime } from "@/lib/use-realtime";
 import { isOverdue, dueLabel } from "@/lib/date";
-import { initials } from "@/lib/utils";
+import { initials, userColor } from "@/lib/utils";
 import {
   PRIORITIES,
   type Profile,
@@ -80,12 +80,14 @@ export function DashboardView({
       name: p.full_name || p.email,
       short: initials(p.full_name || p.email),
       value: scoped.filter((t) => t.assignee_id === p.id).length,
+      color: userColor(p.email, p.color),
     }))
     .concat([
       {
         name: "Unassigned",
         short: "—",
         value: scoped.filter((t) => !t.assignee_id).length,
+        color: "#94a3b8",
       },
     ])
     .filter((d) => d.value > 0)
@@ -209,7 +211,11 @@ export function DashboardView({
                     cursor={{ fill: "rgba(148,163,184,0.18)" }}
                     labelFormatter={(_, p) => p?.[0]?.payload?.name ?? ""}
                   />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#6366f1" />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {byAssignee.map((d, i) => (
+                      <Cell key={i} fill={d.color} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}

@@ -470,6 +470,7 @@ export function TasksView({
                                 <Avatar
                                   name={t.assignee.full_name}
                                   email={t.assignee.email}
+                                  color={t.assignee.color}
                                   size={24}
                                 />
                                 <span className="truncate max-w-28">

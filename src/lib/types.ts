@@ -17,6 +17,7 @@ export interface Profile {
   email_notifications: boolean;
   is_superadmin: boolean;
   is_placeholder: boolean;
+  color: string | null;
   created_at: string;
 }
 

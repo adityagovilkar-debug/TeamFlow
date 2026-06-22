@@ -29,6 +29,7 @@ export default async function ActivityPage() {
               <Avatar
                 name={a.actor?.full_name}
                 email={a.actor?.email}
+                color={a.actor?.color}
                 size={32}
               />
               <div className="min-w-0 flex-1">
