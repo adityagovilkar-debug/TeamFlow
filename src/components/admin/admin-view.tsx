@@ -19,6 +19,8 @@ import {
   Check,
   RefreshCw,
   Crown,
+  UserPlus,
+  Ban,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -32,6 +34,7 @@ import { Popover, MenuItem } from "@/components/ui/popover";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import {
   createLabel,
+  createMember,
   createStatus,
   createTeam,
   createTemplate,
@@ -500,6 +503,7 @@ function Members({
   const [resetting, setResetting] = React.useState<Profile | null>(null);
   const [deleting, setDeleting] = React.useState<Profile | null>(null);
   const [promoting, setPromoting] = React.useState<Profile | null>(null);
+  const [addingMember, setAddingMember] = React.useState(false);
 
   async function changeRole(id: string, role: Role) {
     setSavingId(id);
@@ -524,6 +528,15 @@ function Members({
         </div>
       )}
 
+      {me.is_superadmin && (
+        <div className="mb-3 flex justify-end">
+          <Button onClick={() => setAddingMember(true)}>
+            <UserPlus className="size-4" />
+            Add user
+          </Button>
+        </div>
+      )}
+
       <Card className="divide-y divide-border">
         {profiles.map((p) => {
           const isSelf = p.id === me.id;
@@ -544,6 +557,12 @@ function Members({
                       Super-admin
                     </span>
                   )}
+                  {p.is_placeholder && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold text-muted-foreground">
+                      <Ban className="size-3" />
+                      No app access
+                    </span>
+                  )}
                 </p>
                 <p className="truncate text-sm text-muted-foreground">
                   {p.email}
@@ -553,21 +572,27 @@ function Members({
                 {savingId === p.id && (
                   <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 )}
-                <Select
-                  value={p.role}
-                  disabled={isSelf}
-                  onChange={(e) => changeRole(p.id, e.target.value as Role)}
-                  className="w-32"
-                  title={isSelf ? "You can't change your own role" : undefined}
-                >
-                  {(["admin", "user", "contributor", "viewer"] as Role[]).map(
-                    (r) => (
-                      <option key={r} value={r}>
-                        {ROLE_LABELS[r]}
-                      </option>
-                    ),
-                  )}
-                </Select>
+                {p.is_placeholder ? (
+                  <span className="w-32 text-center text-sm text-muted-foreground">
+                    No access
+                  </span>
+                ) : (
+                  <Select
+                    value={p.role}
+                    disabled={isSelf}
+                    onChange={(e) => changeRole(p.id, e.target.value as Role)}
+                    className="w-32"
+                    title={isSelf ? "You can't change your own role" : undefined}
+                  >
+                    {(["admin", "user", "contributor", "viewer"] as Role[]).map(
+                      (r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABELS[r]}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                )}
                 <Popover
                   align="end"
                   trigger={
@@ -581,15 +606,17 @@ function Members({
                 >
                   {(close) => (
                     <>
-                      <MenuItem
-                        onClick={() => {
-                          close();
-                          setResetting(p);
-                        }}
-                      >
-                        <KeyRound /> Reset password
-                      </MenuItem>
-                      {me.is_superadmin && !p.is_superadmin && (
+                      {!p.is_placeholder && (
+                        <MenuItem
+                          onClick={() => {
+                            close();
+                            setResetting(p);
+                          }}
+                        >
+                          <KeyRound /> Reset password
+                        </MenuItem>
+                      )}
+                      {me.is_superadmin && !p.is_superadmin && !p.is_placeholder && (
                         <MenuItem
                           onClick={() => {
                             close();
@@ -607,7 +634,7 @@ function Members({
                             setDeleting(p);
                           }}
                         >
-                          <Trash2 /> Delete user
+                          <Trash2 /> Delete {p.is_placeholder ? "member" : "user"}
                         </MenuItem>
                       )}
                     </>
@@ -640,6 +667,11 @@ function Members({
           if (res.error) alert(res.error);
           router.refresh();
         }}
+      />
+      <AddMemberDialog
+        open={addingMember}
+        onClose={() => setAddingMember(false)}
+        configured={userMgmtEnabled}
       />
       <ResetPasswordDialog
         user={resetting}
@@ -790,6 +822,112 @@ function ResetPasswordDialog({
           </DialogFooter>
         </form>
       )}
+    </Dialog>
+  );
+}
+
+function AddMemberDialog({
+  open,
+  onClose,
+  configured,
+}: {
+  open: boolean;
+  onClose: () => void;
+  configured: boolean;
+}) {
+  const router = useRouter();
+  const [fullName, setFullName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (open) {
+      setFullName("");
+      setEmail("");
+      setError(null);
+    }
+  }, [open]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!fullName.trim()) return;
+    setSaving(true);
+    setError(null);
+    const res = await createMember({
+      fullName: fullName.trim(),
+      email: email.trim() || null,
+    });
+    setSaving(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    onClose();
+    router.refresh();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogHeader
+        title="Add user"
+        description="Add someone you can assign and track. They can't sign in."
+      />
+      <form onSubmit={save}>
+        <DialogBody className="space-y-4">
+          {!configured && (
+            <div className="flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
+              <TriangleAlert className="size-4 shrink-0 text-warning" />
+              <span>
+                Adding users needs the{" "}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                  SUPABASE_SERVICE_ROLE_KEY
+                </code>{" "}
+                server environment variable (see README).
+              </span>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="m-name">Full name</Label>
+            <Input
+              id="m-name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Priya from accounts"
+              autoFocus
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="m-email">Email (optional)</Label>
+            <Input
+              id="m-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Leave blank if they shouldn't be contacted"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              They can be assigned tasks and watched, but cannot sign in. No
+              invite or notification email is sent.
+            </p>
+          </div>
+          {error && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || !fullName.trim() || !configured}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Add user
+          </Button>
+        </DialogFooter>
+      </form>
     </Dialog>
   );
 }

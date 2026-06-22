@@ -1087,6 +1087,68 @@ export async function setSuperadmin(userId: string): Promise<Result> {
   return {};
 }
 
+/**
+ * Add a member who can be assigned tasks but has NO app access: a credential-less
+ * auth user (random password, never shared, no invite). The handle_new_user
+ * trigger creates their profile; we then flag it as a placeholder and silence
+ * notifications. Super-admin only.
+ */
+export async function createMember(input: {
+  fullName: string;
+  email?: string | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("is_superadmin")
+    .eq("id", user.id)
+    .single();
+  if (!me?.is_superadmin)
+    return { error: "Only the super-admin can add members." };
+
+  const fullName = input.fullName.trim();
+  if (!fullName) return { error: "Name is required." };
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "Adding members isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const email =
+    input.email?.trim() ||
+    `placeholder.${crypto.randomUUID()}@no-login.teamflow.local`;
+  const password = crypto.randomUUID() + crypto.randomUUID(); // never shared
+
+  const admin = createAdminClient();
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+  });
+  if (error) return { error: error.message };
+
+  // Flag the trigger-created profile as a no-access placeholder.
+  if (created.user) {
+    await admin
+      .from("profiles")
+      .update({
+        full_name: fullName,
+        is_placeholder: true,
+        email_notifications: false,
+      })
+      .eq("id", created.user.id);
+  }
+
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
+
 // ---------- Admin: privileged user management (service role) ----------
 export async function deleteUser(userId: string): Promise<Result> {
   const supabase = await createClient();

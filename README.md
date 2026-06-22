@@ -118,8 +118,10 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 > - `12_activity_log.sql` — activity feed
 > - `13_templates_recurrence.sql` — task templates + recurrence
 > - `14_private_tasks.sql` — private tasks + single super-admin
+> - `15_private_select_fix.sql` — fix for the private-task read policy
+> - `16_placeholder_members.sql` — "Add user" (assignable members with no app access)
 >
-> Migrations **04–14 can be pasted and run together** in one query (none have the
+> Migrations **04–16 can be pasted and run together** in one query (none have the
 > enum-in-transaction caveat). The app expects these tables/columns, so run them
 > before using the new build.
 
@@ -183,8 +185,12 @@ Admins can manage members from **Admin → Members**:
   in immediately. *(requires the service-role key — see below)*
 - **Delete a user** — removes their login and profile immediately. *(requires the
   service-role key)*
+- **Add user** *(super-admin only)* — add someone you can **assign and track** but who
+  **can't sign in** (e.g. a contractor or a teammate who won't use the app). They show
+  up in assignee/watcher pickers and Workload, are badged "No app access," and are
+  never emailed. Email is optional. *(requires the service-role key)*
 
-### Enable delete / password reset
+### Enable delete / password reset / add user
 
 These two actions use Supabase's admin API, which needs the **service-role key**:
 

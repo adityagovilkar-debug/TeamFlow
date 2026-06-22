@@ -16,6 +16,7 @@ export interface Profile {
   avatar_url: string | null;
   email_notifications: boolean;
   is_superadmin: boolean;
+  is_placeholder: boolean;
   created_at: string;
 }
 
