@@ -979,14 +979,53 @@ export async function deleteStatus(id: string): Promise<Result> {
 }
 
 // ---------- Admin: teams ----------
-export async function createTeam(input: {
+// Teams run through the service role: a private team is hidden from admins by RLS,
+// so the normal client can't read/insert/return it. All three are admin-guarded.
+interface TeamInput {
   name: string;
   color: string;
   description: string | null;
-}): Promise<Result> {
+  is_private: boolean;
+  members: string[];
+}
+
+async function replaceTeamMembers(
+  admin: ReturnType<typeof createAdminClient>,
+  teamId: string,
+  members: string[],
+): Promise<void> {
+  await admin.from("team_members").delete().eq("team_id", teamId);
+  if (members.length > 0) {
+    await admin
+      .from("team_members")
+      .insert(members.map((uid) => ({ team_id: teamId, user_id: uid })));
+  }
+}
+
+export async function createTeam(input: TeamInput): Promise<Result> {
   const supabase = await createClient();
-  const { error } = await supabase.from("teams").insert(input);
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "Team management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("teams")
+    .insert({
+      name: input.name,
+      color: input.color,
+      description: input.description,
+      is_private: input.is_private,
+    })
+    .select("id")
+    .single();
   if (error) return { error: error.message };
+  await replaceTeamMembers(admin, data.id, input.is_private ? input.members : []);
+
   revalidatePath("/admin");
   revalidateTaskViews();
   return {};
@@ -994,11 +1033,30 @@ export async function createTeam(input: {
 
 export async function updateTeam(
   id: string,
-  input: { name: string; color: string; description: string | null },
+  input: TeamInput,
 ): Promise<Result> {
   const supabase = await createClient();
-  const { error } = await supabase.from("teams").update(input).eq("id", id);
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "Team management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("teams")
+    .update({
+      name: input.name,
+      color: input.color,
+      description: input.description,
+      is_private: input.is_private,
+    })
+    .eq("id", id);
   if (error) return { error: error.message };
+  await replaceTeamMembers(admin, id, input.is_private ? input.members : []);
+
   revalidatePath("/admin");
   revalidateTaskViews();
   return {};
@@ -1006,7 +1064,16 @@ export async function updateTeam(
 
 export async function deleteTeam(id: string): Promise<Result> {
   const supabase = await createClient();
-  const { error } = await supabase.from("teams").delete().eq("id", id);
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "Team management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("teams").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/admin");
   revalidateTaskViews();

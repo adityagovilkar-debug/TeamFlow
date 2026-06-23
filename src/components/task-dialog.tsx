@@ -277,22 +277,23 @@ export function TaskDialog({
                 value={teamId}
                 onChange={(e) => setTeamId(e.target.value)}
               >
-                <option value="">Unassigned</option>
+                <option value="">None</option>
                 {teams.map((t) => (
                   <option key={t.id} value={t.id}>
+                    {t.is_private ? "🔒 " : ""}
                     {t.name}
                   </option>
                 ))}
               </Select>
             </div>
             <div>
-              <Label htmlFor="t-assignee">Assignee</Label>
+              <Label htmlFor="t-assignee">Responsible</Label>
               <Select
                 id="t-assignee"
                 value={assigneeId}
                 onChange={(e) => setAssigneeId(e.target.value)}
               >
-                <option value="">Unassigned</option>
+                <option value="">No one</option>
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name || p.email}
@@ -380,7 +381,7 @@ export function TaskDialog({
                 <p className="text-xs text-muted-foreground">
                   {isSubtask
                     ? "Subtasks of a private epic are private automatically."
-                    : "Only you, the assignee, watchers, and the super-admin can see this."}
+                    : "Only you, the person responsible, watchers, and the super-admin can see this."}
                 </p>
               </div>
             </div>

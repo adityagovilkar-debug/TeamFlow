@@ -402,7 +402,7 @@ export function TaskDetail({
         {/* Sidebar */}
         <div className="space-y-4">
           <Card className="divide-y divide-border">
-            <Field label="Assignee">
+            <Field label="Responsible">
               {task.assignee ? (
                 <span className="flex items-center gap-2">
                   <Avatar
@@ -416,7 +416,7 @@ export function TaskDetail({
                   </span>
                 </span>
               ) : (
-                <span className="text-sm text-muted-foreground">Unassigned</span>
+                <span className="text-sm text-muted-foreground">No one</span>
               )}
             </Field>
 

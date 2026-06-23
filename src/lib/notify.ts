@@ -89,8 +89,8 @@ function buildEmail(
       )}`;
       break;
     case "assigned":
-      subject = `📌 You were assigned “${taskTitle}”`;
-      headline = `${actorName} assigned this task to you`;
+      subject = `📌 You're responsible for “${taskTitle}”`;
+      headline = `${actorName} made you responsible for this task`;
       break;
     case "watching":
       subject = `👀 You're now watching “${taskTitle}”`;

@@ -42,7 +42,15 @@ create table if not exists public.teams (
   name        text not null,
   color       text not null default '#6366f1',
   description text,
+  is_private  boolean not null default false,
   created_at  timestamptz not null default now()
+);
+
+-- Members of a (private) team. A private team + its tasks are visible only to these.
+create table if not exists public.team_members (
+  team_id uuid not null references public.teams (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  primary key (team_id, user_id)
 );
 
 create table if not exists public.statuses (
@@ -178,6 +186,7 @@ alter table public.tasks    add column if not exists is_private boolean not null
 alter table public.profiles add column if not exists is_superadmin boolean not null default false;
 alter table public.profiles add column if not exists is_placeholder boolean not null default false;
 alter table public.profiles add column if not exists color text;
+alter table public.teams    add column if not exists is_private boolean not null default false;
 alter table public.tasks    add column if not exists estimate_minutes int;
 alter table public.tasks    add column if not exists recurrence text not null default 'none';
 alter table public.tasks    add column if not exists approval_status text not null default 'none';
@@ -208,6 +217,7 @@ create index if not exists idx_time_entries_user on public.time_entries (user_id
 create index if not exists idx_activity_task on public.activity (task_id, created_at desc);
 create index if not exists idx_activity_created on public.activity (created_at desc);
 create index if not exists idx_template_items on public.template_checklist_items (template_id);
+create index if not exists idx_team_members_team on public.team_members (team_id);
 
 -- ---------- Helpers ----------
 -- SECURITY DEFINER so policies can read a user's role without recursive RLS.
@@ -252,6 +262,38 @@ as $$
   select coalesce((select is_superadmin from public.profiles where id = auth.uid()), false);
 $$;
 
+-- Team-member check (touches only team_members) so teams_select needn't re-query teams.
+create or replace function public.is_team_member(tid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.team_members m
+    where m.team_id = tid and m.user_id = auth.uid()
+  );
+$$;
+
+-- Whether the current user may see a team (honors the private-team rule).
+create or replace function public.can_see_team(tid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.teams t
+    where t.id = tid and (
+      not t.is_private
+      or public.is_team_member(t.id)
+      or public.is_superadmin()
+    )
+  );
+$$;
+
 -- Whether the current user may see a task (honors the private-task rule).
 -- SECURITY DEFINER so the cross-table reads bypass RLS (no policy recursion).
 create or replace function public.can_see_task(tid uuid)
@@ -263,16 +305,18 @@ stable
 as $$
   select exists (
     select 1 from public.tasks t
-    where t.id = tid and (
-      not t.is_private
-      or t.created_by = auth.uid()
-      or t.assignee_id = auth.uid()
-      or exists (
-        select 1 from public.task_watchers w
-        where w.task_id = t.id and w.user_id = auth.uid()
+    where t.id = tid
+      and (
+        not t.is_private
+        or t.created_by = auth.uid()
+        or t.assignee_id = auth.uid()
+        or exists (
+          select 1 from public.task_watchers w
+          where w.task_id = t.id and w.user_id = auth.uid()
+        )
+        or public.is_superadmin()
       )
-      or public.is_superadmin()
-    )
+      and (t.team_id is null or public.can_see_team(t.team_id))
   );
 $$;
 
@@ -356,6 +400,7 @@ create trigger on_auth_user_created
 -- ---------- Row Level Security ----------
 alter table public.profiles enable row level security;
 alter table public.teams enable row level security;
+alter table public.team_members enable row level security;
 alter table public.statuses enable row level security;
 alter table public.folders enable row level security;
 alter table public.tasks enable row level security;
@@ -386,15 +431,24 @@ create policy profiles_admin_all on public.profiles
   using (public.is_admin())
   with check (public.is_admin());
 
--- teams: all read; only admins write.
+-- teams: read honors privacy (members + super-admin see private). Writes go through
+-- the service role (admin-guarded actions), so there is no admin write policy here —
+-- a 'for all' admin policy would also leak SELECT of private teams to admins.
+drop policy if exists teams_admin_write on public.teams;
 drop policy if exists teams_select on public.teams;
 create policy teams_select on public.teams
-  for select to authenticated using (true);
+  for select to authenticated
+  using (
+    not is_private
+    or public.is_team_member(id)
+    or public.is_superadmin()
+  );
 
-drop policy if exists teams_admin_write on public.teams;
-create policy teams_admin_write on public.teams
-  for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+-- team_members: visible to anyone who can see the team.
+drop policy if exists team_members_select on public.team_members;
+create policy team_members_select on public.team_members
+  for select to authenticated
+  using ( public.can_see_team(team_id) );
 
 -- statuses: all read; only admins write.
 drop policy if exists statuses_select on public.statuses;
@@ -422,11 +476,14 @@ drop policy if exists tasks_select on public.tasks;
 create policy tasks_select on public.tasks
   for select to authenticated
   using (
-    not is_private
-    or created_by = auth.uid()
-    or assignee_id = auth.uid()
-    or public.is_watcher(id)
-    or public.is_superadmin()
+    (
+      not is_private
+      or created_by = auth.uid()
+      or assignee_id = auth.uid()
+      or public.is_watcher(id)
+      or public.is_superadmin()
+    )
+    and (team_id is null or public.can_see_team(team_id))
   );
 
 drop policy if exists tasks_insert on public.tasks;

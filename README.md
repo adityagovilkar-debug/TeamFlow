@@ -22,9 +22,12 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 - **Archive** — archive old/finished tasks so they drop out of the active views
   (Tasks / Board / Calendar / Timeline / Dashboard) but stay browsable under
   Tasks → Archived, and can be restored anytime.
-- **Private tasks** — mark a task private so only its **creator, assignee, watchers,
-  and the single super-admin** can see it (enforced in the database, including its
-  comments/checklist/time/activity). Marking an epic private cascades to its subtasks.
+- **Private tasks** — mark a task private so only its **creator, responsible person,
+  watchers, and the single super-admin** can see it (enforced in the database, including
+  its comments/checklist/time/activity). Marking an epic private cascades to its subtasks.
+- **Private teams/products** — mark a team private and assign **members**; the team *and
+  all its tasks* are visible only to those members and the super-admin (DB-enforced).
+  Admins manage teams in Admin → Teams.
 - **Roles** (enforced in the database via Row-Level Security, not just the UI):
   - **Super-admin** — exactly one (the owner); the only person who can see *every*
     private task. Otherwise an Admin. Transferable in Admin → Members.
@@ -123,8 +126,9 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 > - `15_private_select_fix.sql` — fix for the private-task read policy
 > - `16_placeholder_members.sql` — "Add user" (assignable members with no app access)
 > - `17_user_color.sql` — per-user display color
+> - `18_private_teams.sql` — private teams/products + members
 >
-> Migrations **04–17 can be pasted and run together** in one query (none have the
+> Migrations **04–18 can be pasted and run together** in one query (none have the
 > enum-in-transaction caveat). The app expects these tables/columns, so run them
 > before using the new build.
 

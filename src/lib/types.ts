@@ -26,7 +26,13 @@ export interface Team {
   name: string;
   color: string;
   description: string | null;
+  is_private: boolean;
   created_at: string;
+}
+
+/** Team with its members, for the admin management panel. */
+export interface TeamWithMembers extends Team {
+  members: Profile[];
 }
 
 export interface Status {

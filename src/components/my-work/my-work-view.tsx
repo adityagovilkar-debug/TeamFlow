@@ -59,7 +59,7 @@ export function MyWorkView({
   })).filter((g) => g.items.length > 0);
 
   const scopes: { id: Scope; label: string }[] = [
-    { id: "assigned", label: "Assigned to me" },
+    { id: "assigned", label: "I'm responsible" },
     { id: "created", label: "Created by me" },
     { id: "watching", label: "Watching" },
   ];

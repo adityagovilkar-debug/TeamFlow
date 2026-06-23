@@ -84,7 +84,7 @@ export function DashboardView({
     }))
     .concat([
       {
-        name: "Unassigned",
+        name: "No one",
         short: "—",
         value: scoped.filter((t) => !t.assignee_id).length,
         color: "#94a3b8",
@@ -186,7 +186,7 @@ export function DashboardView({
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Tasks by assignee</CardTitle>
+            <CardTitle>Tasks by responsible</CardTitle>
           </CardHeader>
           <CardContent>
             {byAssignee.length === 0 ? (

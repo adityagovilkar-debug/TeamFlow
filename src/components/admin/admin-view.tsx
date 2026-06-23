@@ -22,6 +22,7 @@ import {
   UserPlus,
   UserCheck,
   Ban,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Popover, MenuItem } from "@/components/ui/popover";
+import { PeopleSelect } from "@/components/ui/people-select";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import {
   createLabel,
@@ -66,6 +68,7 @@ import {
   type StatusCategory,
   type TaskTemplate,
   type Team,
+  type TeamWithMembers,
 } from "@/lib/types";
 
 type Tab = "members" | "teams" | "statuses" | "labels" | "templates";
@@ -86,7 +89,7 @@ export function AdminView({
 }: {
   me: Profile;
   profiles: Profile[];
-  teams: Team[];
+  teams: TeamWithMembers[];
   statuses: Status[];
   labels: LabelType[];
   templates: TaskTemplate[];
@@ -135,7 +138,7 @@ export function AdminView({
           userMgmtEnabled={userMgmtEnabled}
         />
       )}
-      {tab === "teams" && <Teams teams={teams} />}
+      {tab === "teams" && <Teams teams={teams} profiles={profiles} />}
       {tab === "statuses" && <Statuses statuses={statuses} />}
       {tab === "labels" && <Labels labels={labels} />}
       {tab === "templates" && <Templates templates={templates} teams={teams} />}
@@ -1191,11 +1194,17 @@ function generatePassword(): string {
 }
 
 /* ---------------- Teams ---------------- */
-function Teams({ teams }: { teams: Team[] }) {
+function Teams({
+  teams,
+  profiles,
+}: {
+  teams: TeamWithMembers[];
+  profiles: Profile[];
+}) {
   const router = useRouter();
-  const [editing, setEditing] = React.useState<Team | null>(null);
+  const [editing, setEditing] = React.useState<TeamWithMembers | null>(null);
   const [creating, setCreating] = React.useState(false);
-  const [deleting, setDeleting] = React.useState<Team | null>(null);
+  const [deleting, setDeleting] = React.useState<TeamWithMembers | null>(null);
 
   return (
     <div>
@@ -1212,15 +1221,31 @@ function Teams({ teams }: { teams: Team[] }) {
         {teams.map((t) => (
           <div key={t.id} className="flex items-center gap-3 p-4">
             <span
-              className="size-4 rounded-full"
+              className="size-4 shrink-0 rounded-full"
               style={{ backgroundColor: t.color }}
             />
             <div className="min-w-0 flex-1">
-              <p className="font-medium">{t.name}</p>
-              {t.description && (
+              <p className="flex items-center gap-2 font-medium">
+                {t.name}
+                {t.is_private && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                    <Lock className="size-3" />
+                    Private
+                  </span>
+                )}
+              </p>
+              {t.is_private ? (
                 <p className="truncate text-sm text-muted-foreground">
-                  {t.description}
+                  {t.members.length > 0
+                    ? `Members: ${t.members.map((m) => m.full_name || m.email).join(", ")}`
+                    : "No members yet — only the super-admin can see it"}
                 </p>
+              ) : (
+                t.description && (
+                  <p className="truncate text-sm text-muted-foreground">
+                    {t.description}
+                  </p>
+                )
               )}
             </div>
             <Button variant="ghost" size="icon-sm" onClick={() => setEditing(t)}>
@@ -1240,6 +1265,7 @@ function Teams({ teams }: { teams: Team[] }) {
       <TeamDialog
         open={creating || Boolean(editing)}
         team={editing}
+        profiles={profiles}
         onClose={() => {
           setCreating(false);
           setEditing(null);
@@ -1263,32 +1289,50 @@ function Teams({ teams }: { teams: Team[] }) {
 function TeamDialog({
   open,
   team,
+  profiles,
   onClose,
 }: {
   open: boolean;
-  team: Team | null;
+  team: TeamWithMembers | null;
+  profiles: Profile[];
   onClose: () => void;
 }) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [color, setColor] = React.useState(SWATCHES[0]);
   const [description, setDescription] = React.useState("");
+  const [isPrivate, setIsPrivate] = React.useState(false);
+  const [members, setMembers] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
     setName(team?.name ?? "");
     setColor(team?.color ?? SWATCHES[0]);
     setDescription(team?.description ?? "");
+    setIsPrivate(team?.is_private ?? false);
+    setMembers(team?.members.map((m) => m.id) ?? []);
+    setError(null);
   }, [open, team]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const input = { name: name.trim(), color, description: description.trim() || null };
-    if (team) await updateTeam(team.id, input);
-    else await createTeam(input);
+    setError(null);
+    const input = {
+      name: name.trim(),
+      color,
+      description: description.trim() || null,
+      is_private: isPrivate,
+      members,
+    };
+    const res = team ? await updateTeam(team.id, input) : await createTeam(input);
     setSaving(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
     onClose();
     router.refresh();
   }
@@ -1320,6 +1364,57 @@ function TeamDialog({
             />
           </div>
           <ColorPicker value={color} onChange={setColor} />
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+            <div className="flex items-start gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                <Lock className="size-4" />
+              </span>
+              <div>
+                <p className="text-sm font-medium">Private team</p>
+                <p className="text-xs text-muted-foreground">
+                  Only its members and the super-admin can see this team and its tasks.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isPrivate}
+              onClick={() => setIsPrivate((v) => !v)}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer",
+                isPrivate ? "bg-primary" : "bg-muted-foreground/30",
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block size-5 transform rounded-full bg-white shadow transition-transform",
+                  isPrivate ? "translate-x-[22px]" : "translate-x-[2px]",
+                )}
+              />
+            </button>
+          </div>
+
+          {isPrivate && (
+            <div>
+              <Label>Members</Label>
+              <PeopleSelect
+                people={profiles}
+                value={members}
+                onChange={setMembers}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                These people (and the super-admin) will see the team and its tasks.
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="secondary" onClick={onClose}>

@@ -264,8 +264,8 @@ export function TasksView({
               onChange={(e) => setAssigneeF(e.target.value)}
               className="w-auto min-w-32"
             >
-              <option value="">All assignees</option>
-              <option value="unassigned">Unassigned</option>
+              <option value="">All responsible</option>
+              <option value="unassigned">No one</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.full_name || p.email}
@@ -351,7 +351,7 @@ export function TasksView({
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Priority</th>
                       <th className="px-4 py-3">Team</th>
-                      <th className="px-4 py-3">Assignee</th>
+                      <th className="px-4 py-3">Responsible</th>
                       <th className="px-4 py-3">Due</th>
                       <th className="px-4 py-3 w-10" />
                     </tr>
@@ -479,7 +479,7 @@ export function TasksView({
                               </span>
                             ) : (
                               <span className="text-muted-foreground">
-                                Unassigned
+                                No one
                               </span>
                             )}
                           </td>
