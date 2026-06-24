@@ -48,7 +48,7 @@ export function TaskDialog({
   open: boolean;
   onClose: () => void;
   statuses: Status[];
-  teams: Team[];
+  teams: (Team & { members?: Profile[] })[];
   profiles: Profile[];
   folders?: Folder[];
   labels?: LabelType[];
@@ -84,6 +84,28 @@ export function TaskDialog({
     () => flattenFolderTree(buildFolderTree(folders)),
     [folders],
   );
+
+  // A private team's tasks can only be made the responsibility of a team member.
+  const selectedTeam = teams.find((t) => t.id === teamId);
+  const responsibleOptions = React.useMemo(() => {
+    if (selectedTeam?.is_private && selectedTeam.members?.length) {
+      const ids = new Set(selectedTeam.members.map((m) => m.id));
+      return profiles.filter((p) => ids.has(p.id));
+    }
+    return profiles;
+  }, [selectedTeam, profiles]);
+
+  // If the team changes to a private one, drop a responsible who isn't a member.
+  React.useEffect(() => {
+    if (
+      selectedTeam?.is_private &&
+      assigneeId &&
+      !selectedTeam.members?.some((m) => m.id === assigneeId)
+    ) {
+      setAssigneeId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId]);
 
   // Initialize form whenever the dialog opens.
   React.useEffect(() => {
@@ -294,7 +316,7 @@ export function TaskDialog({
                 onChange={(e) => setAssigneeId(e.target.value)}
               >
                 <option value="">No one</option>
-                {profiles.map((p) => (
+                {responsibleOptions.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name || p.email}
                   </option>

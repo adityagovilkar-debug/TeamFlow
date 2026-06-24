@@ -11,15 +11,23 @@ export function cn(...inputs: ClassValue[]) {
  */
 export const AVATAR_PALETTE = [
   "#dc2626", // red
+  "#e11d48", // rose
   "#ea580c", // orange
+  "#d97706", // amber
   "#ca8a04", // gold
-  "#16a34a", // green
-  "#0d9488", // teal
-  "#0ea5e9", // sky
-  "#4f46e5", // indigo
-  "#9333ea", // purple
-  "#db2777", // pink
   "#65a30d", // olive
+  "#16a34a", // green
+  "#059669", // emerald
+  "#0d9488", // teal
+  "#0891b2", // cyan
+  "#0ea5e9", // sky
+  "#2563eb", // blue
+  "#4f46e5", // indigo
+  "#7c3aed", // violet
+  "#9333ea", // purple
+  "#c026d3", // fuchsia
+  "#db2777", // pink
+  "#78716c", // stone
 ];
 
 /** Deterministic color from a string, drawn from AVATAR_PALETTE. */

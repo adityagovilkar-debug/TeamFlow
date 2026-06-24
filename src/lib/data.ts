@@ -15,6 +15,7 @@ import {
   type TaskTemplate,
   type TaskWithRelations,
   type Team,
+  type TeamWithMembers,
   type TimeEntry,
 } from "@/lib/types";
 
@@ -27,13 +28,17 @@ export async function getStatuses(): Promise<Status[]> {
   return (data as Status[]) ?? [];
 }
 
-export async function getTeams(): Promise<Team[]> {
+export async function getTeams(): Promise<TeamWithMembers[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("teams")
-    .select("*")
+    .select("*, members:team_members(profile:profiles(*))")
     .order("name", { ascending: true });
-  return (data as Team[]) ?? [];
+  type Raw = Team & { members: { profile: Profile }[] | null };
+  return ((data as Raw[]) ?? []).map((t) => ({
+    ...t,
+    members: (t.members ?? []).map((m) => m.profile).filter(Boolean),
+  }));
 }
 
 export async function getProfiles(): Promise<Profile[]> {
