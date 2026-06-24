@@ -23,6 +23,8 @@ import {
   UserCheck,
   Ban,
   Lock,
+  Mail,
+  ShieldOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -47,8 +49,10 @@ import {
   deleteTeam,
   deleteTemplate,
   deleteUser,
-  setSuperadmin,
+  grantSuperadmin,
+  revokeSuperadmin,
   setUserColor,
+  setUserEmail,
   setUserPassword,
   setUserRole,
   updateLabel,
@@ -510,8 +514,11 @@ function Members({
   const [resetting, setResetting] = React.useState<Profile | null>(null);
   const [deleting, setDeleting] = React.useState<Profile | null>(null);
   const [promoting, setPromoting] = React.useState<Profile | null>(null);
+  const [revoking, setRevoking] = React.useState<Profile | null>(null);
   const [addingMember, setAddingMember] = React.useState(false);
   const [granting, setGranting] = React.useState<Profile | null>(null);
+  const [changingEmail, setChangingEmail] = React.useState<Profile | null>(null);
+  const superadminCount = profiles.filter((p) => p.is_superadmin).length;
 
   async function changeRole(id: string, role: Role) {
     setSavingId(id);
@@ -625,6 +632,16 @@ function Members({
                           <KeyRound /> Reset password
                         </MenuItem>
                       )}
+                      {!p.is_placeholder && (
+                        <MenuItem
+                          onClick={() => {
+                            close();
+                            setChangingEmail(p);
+                          }}
+                        >
+                          <Mail /> Change email
+                        </MenuItem>
+                      )}
                       {me.is_superadmin && p.is_placeholder && (
                         <MenuItem
                           onClick={() => {
@@ -643,6 +660,16 @@ function Members({
                           }}
                         >
                           <Crown /> Make super-admin
+                        </MenuItem>
+                      )}
+                      {me.is_superadmin && p.is_superadmin && superadminCount > 1 && (
+                        <MenuItem
+                          onClick={() => {
+                            close();
+                            setRevoking(p);
+                          }}
+                        >
+                          <ShieldOff /> Revoke super-admin
                         </MenuItem>
                       )}
                       {!isSelf && (
@@ -675,14 +702,30 @@ function Members({
         open={Boolean(promoting)}
         onClose={() => setPromoting(null)}
         title="Make super-admin"
-        description={`Transfer super-admin to ${
+        description={`Make ${
           promoting?.full_name || promoting?.email
-        }? They will be able to see all private tasks, and you will lose that ability. Only one super-admin can exist.`}
+        } a super-admin? They'll be able to see all private tasks and private teams. You keep your own super-admin access.`}
         confirmLabel="Make super-admin"
         onConfirm={async () => {
           if (!promoting) return;
-          const res = await setSuperadmin(promoting.id);
+          const res = await grantSuperadmin(promoting.id);
           setPromoting(null);
+          if (res.error) alert(res.error);
+          router.refresh();
+        }}
+      />
+      <ConfirmDelete
+        open={Boolean(revoking)}
+        onClose={() => setRevoking(null)}
+        title="Revoke super-admin"
+        description={`Remove super-admin from ${
+          revoking?.full_name || revoking?.email
+        }? They'll keep their normal role but lose visibility of private tasks and teams.`}
+        confirmLabel="Revoke super-admin"
+        onConfirm={async () => {
+          if (!revoking) return;
+          const res = await revokeSuperadmin(revoking.id);
+          setRevoking(null);
           if (res.error) alert(res.error);
           router.refresh();
         }}
@@ -692,6 +735,7 @@ function Members({
         onClose={() => setAddingMember(false)}
         configured={userMgmtEnabled}
       />
+      <ChangeEmailDialog user={changingEmail} onClose={() => setChangingEmail(null)} />
       <GrantAccessDialog user={granting} onClose={() => setGranting(null)} />
       <ResetPasswordDialog
         user={resetting}
@@ -1181,6 +1225,86 @@ function MemberColorPicker({ profile }: { profile: Profile }) {
         </div>
       )}
     </Popover>
+  );
+}
+
+function ChangeEmailDialog({
+  user,
+  onClose,
+}: {
+  user: Profile | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [email, setEmail] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (user) {
+      setEmail(user.email ?? "");
+      setError(null);
+    }
+  }, [user]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    const res = await setUserEmail(user.id, email.trim());
+    setSaving(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    onClose();
+    router.refresh();
+  }
+
+  return (
+    <Dialog open={Boolean(user)} onClose={onClose}>
+      <DialogHeader
+        title="Change email"
+        description={
+          user
+            ? `Update the login email for ${user.full_name || user.email}.`
+            : ""
+        }
+      />
+      <form onSubmit={save}>
+        <DialogBody className="space-y-3">
+          <div>
+            <Label htmlFor="ce-email">New email</Label>
+            <Input
+              id="ce-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoFocus
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              They'll sign in with this address from now on. Their password is unchanged.
+            </p>
+          </div>
+          {error && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || !email.trim()}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Save email
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
 

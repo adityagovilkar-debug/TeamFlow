@@ -29,8 +29,8 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
   all its tasks* are visible only to those members and the super-admin (DB-enforced).
   Admins manage teams in Admin → Teams.
 - **Roles** (enforced in the database via Row-Level Security, not just the UI):
-  - **Super-admin** — exactly one (the owner); the only person who can see *every*
-    private task. Otherwise an Admin. Transferable in Admin → Members.
+  - **Super-admin** — can see *every* private task and private team. You can have
+    more than one; grant/revoke in Admin → Members (the last one can't be removed).
   - **Admin** — full access: delete tasks, manage custom statuses & teams, assign roles, manage users (but does **not** see others' private tasks).
   - **User** — create/edit any task, comment, manage watchers, manage folders.
   - **Contributor** — can edit, comment, and check off items only on tasks **assigned to them**; views everything else.
@@ -127,8 +127,9 @@ Built with **Next.js 16 (App Router)**, **Supabase** (Postgres + Auth + Realtime
 > - `16_placeholder_members.sql` — "Add user" (assignable members with no app access)
 > - `17_user_color.sql` — per-user display color
 > - `18_private_teams.sql` — private teams/products + members
+> - `19_multi_superadmin.sql` — allow more than one super-admin
 >
-> Migrations **04–18 can be pasted and run together** in one query (none have the
+> Migrations **04–19 can be pasted and run together** in one query (none have the
 > enum-in-transaction caveat). The app expects these tables/columns, so run them
 > before using the new build.
 
@@ -190,6 +191,8 @@ Admins can manage members from **Admin → Members**:
 - **Change roles** (works with just the public key).
 - **Reset a password** — set or generate a new one and share it; the user can sign
   in immediately. *(requires the service-role key — see below)*
+- **Change email** — update a user's login email (and profile). *(requires the
+  service-role key)*
 - **Delete a user** — removes their login and profile immediately. *(requires the
   service-role key)*
 - **Add user** *(super-admin only)* — add someone you can **assign and track** but who

@@ -1138,37 +1138,59 @@ export async function reorderSubtasks(
   return {};
 }
 
-// ---------- Super-admin (single break-glass owner) ----------
-/** Transfer the sole super-admin to another member. Only the current super-admin may. */
-export async function setSuperadmin(userId: string): Promise<Result> {
+// ---------- Super-admins (multiple allowed; can't remove the last one) ----------
+/** Grant super-admin to another member. Only a super-admin may. */
+export async function grantSuperadmin(userId: string): Promise<Result> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
-
   const { data: me } = await supabase
     .from("profiles")
     .select("is_superadmin")
     .eq("id", user.id)
     .single();
   if (!me?.is_superadmin)
-    return { error: "Only the current super-admin can transfer this." };
-  if (userId === user.id) return {};
+    return { error: "Only a super-admin can grant this." };
 
-  // Clear the existing holder first (the partial unique index allows only one).
-  const { error: e1 } = await supabase
-    .from("profiles")
-    .update({ is_superadmin: false })
-    .eq("is_superadmin", true);
-  if (e1) return { error: e1.message };
-
-  const { error: e2 } = await supabase
+  const { error } = await supabase
     .from("profiles")
     .update({ is_superadmin: true })
     .eq("id", userId);
-  if (e2) return { error: e2.message };
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
 
+/** Revoke super-admin. Only a super-admin may, and never the last one. */
+export async function revokeSuperadmin(userId: string): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("is_superadmin")
+    .eq("id", user.id)
+    .single();
+  if (!me?.is_superadmin)
+    return { error: "Only a super-admin can do this." };
+
+  const { count } = await supabase
+    .from("profiles")
+    .select("*", { count: "exact", head: true })
+    .eq("is_superadmin", true);
+  if ((count ?? 0) <= 1)
+    return { error: "There must always be at least one super-admin." };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ is_superadmin: false })
+    .eq("id", userId);
+  if (error) return { error: error.message };
   revalidatePath("/admin");
   revalidateTaskViews();
   return {};
@@ -1297,6 +1319,40 @@ export async function grantAccess(input: {
 }
 
 // ---------- Admin: privileged user management (service role) ----------
+/** Change a user's login email (and their profile email). Admins only. */
+export async function setUserEmail(
+  userId: string,
+  email: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if ("error" in guard) return guard;
+  const trimmed = email.trim();
+  if (!trimmed) return { error: "An email is required." };
+  if (!isServiceRoleConfigured())
+    return {
+      error:
+        "User management isn't configured. Add SUPABASE_SERVICE_ROLE_KEY to the server environment.",
+    };
+
+  const admin = createAdminClient();
+  const { error: authErr } = await admin.auth.admin.updateUserById(userId, {
+    email: trimmed,
+    email_confirm: true,
+  });
+  if (authErr) return { error: authErr.message };
+
+  const { error: profErr } = await admin
+    .from("profiles")
+    .update({ email: trimmed })
+    .eq("id", userId);
+  if (profErr) return { error: profErr.message };
+
+  revalidatePath("/admin");
+  revalidateTaskViews();
+  return {};
+}
+
 export async function deleteUser(userId: string): Promise<Result> {
   const supabase = await createClient();
   const guard = await requireAdmin(supabase);

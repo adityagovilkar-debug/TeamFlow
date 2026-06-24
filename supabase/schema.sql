@@ -33,9 +33,8 @@ create table if not exists public.profiles (
   created_at  timestamptz not null default now()
 );
 
--- Only one super-admin can ever exist (sees private tasks; break-glass owner).
-create unique index if not exists uniq_superadmin
-  on public.profiles (is_superadmin) where is_superadmin;
+-- Super-admins see all private tasks/teams. Multiple are allowed; the app prevents
+-- removing the last one so private data never becomes orphaned.
 
 create table if not exists public.teams (
   id          uuid primary key default gen_random_uuid(),
